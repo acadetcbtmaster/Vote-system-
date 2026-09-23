@@ -1,6 +1,6 @@
 import React from 'react';
 import { Contest } from '../types';
-import { ShieldCheck, Calendar, Info, Search, Smartphone, Check, Share2, Eye, Users, Heart } from 'lucide-react';
+import { ShieldCheck, Info, Search, Smartphone, Check } from 'lucide-react';
 import { ContestCountdown } from './ContestCountdown';
 
 interface ContestHeroProps {
@@ -50,18 +50,8 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center mb-10">
           {/* Left Hero Column */}
           <div className="lg:col-span-7">
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-950 tracking-tight leading-tight">
-              Voters Decide
-            </h1>
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-800 tracking-tight mt-1.5">
-              Your Voice. Their Future.
-            </h2>
-            <p className="text-sm sm:text-base text-slate-500 mt-3 max-w-xl leading-relaxed">
-              Support your favourite contestant and help them win. One person. One choice.
-            </p>
-
-            {/* Status & Deadline Pills (Matching Screen 1) */}
-            <div className="flex flex-wrap items-center gap-3 mt-6">
+            {/* Status & Deadline Pills */}
+            <div className="flex flex-wrap items-center gap-3">
               {/* Contest Status Pill */}
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs">
                 <span className="text-slate-400 font-medium">Contest Status</span>
@@ -74,81 +64,6 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
                   {isVotingOpen ? 'Ongoing' : contest.status.toUpperCase()}
                 </span>
               </div>
-
-              {/* Voting Ends Pill (Shown when countdown timer is enabled by Admin) */}
-              {contest.show_countdown && (
-                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-slate-400 font-medium">Voting Ends</span>
-                  <span className="text-slate-900 font-bold">{formattedEndDate}</span>
-                </div>
-              )}
-
-              {/* 1. GREEN SLOT: Numbers of views slot */}
-              <div 
-                id="hero-views-slot"
-                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-400 text-xs font-bold text-emerald-900 shadow-2xs select-none"
-                title="Total Site Views"
-              >
-                <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="font-black text-emerald-950 tabular-nums">
-                  {viewsCount.toLocaleString()}
-                </span>
-                <span className="text-[11px] font-semibold text-emerald-700">Views</span>
-              </div>
-
-              {/* 2. WHITE SLOT: Followers views slot */}
-              <div 
-                id="hero-followers-slot"
-                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white border border-slate-300 text-xs font-bold text-slate-800 shadow-2xs select-none"
-                title="Official Channel Followers &amp; Voters"
-              >
-                <Users className="w-3.5 h-3.5 text-slate-500" />
-                <span className="font-black text-slate-950 tabular-nums">
-                  {followersCount.toLocaleString()}
-                </span>
-                <span className="text-[11px] font-semibold text-slate-600">Followers</span>
-              </div>
-
-              {/* 3. RED BUTTON: Follow button */}
-              {onFollow && (
-                <button
-                  id="hero-follow-btn"
-                  type="button"
-                  onClick={onFollow}
-                  className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-black transition-all shadow-xs cursor-pointer ${
-                    isFollowing
-                      ? 'bg-red-800 text-white border border-red-700'
-                      : 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border border-red-500'
-                  }`}
-                  title={isFollowing ? 'You are following this contest channel' : 'Follow contest channel'}
-                >
-                  {isFollowing ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 stroke-[3]" />
-                      <span>Following</span>
-                    </>
-                  ) : (
-                    <>
-                      <Heart className="w-3.5 h-3.5 fill-white text-white" />
-                      <span>Follow</span>
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* General Shill / Share Contest Button */}
-              {onOpenShare && (
-                <button
-                  id="hero-share-contest-btn"
-                  type="button"
-                  onClick={onOpenShare}
-                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-xs font-bold text-emerald-800 transition-colors shadow-2xs cursor-pointer"
-                >
-                  <Share2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Share &amp; Shill Contest</span>
-                </button>
-              )}
             </div>
 
             {/* Live Countdown Timer (Visible only when enabled by Admin in Admin Panel) */}
