@@ -1,0 +1,6 @@
+{
+  "name": "Voters Decide",
+  "description": "A secure, real-time public voting and participation platform powered by Supabase with server-side validation and live leaderboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,25 @@
+{
+  "contests": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "slug": "official-contest",
+      "title": "Voters Decide — Official Public Contest",
+      "description": "Vote for your preferred candidate. Maximum 2 submissions per browser. Official real-time results powered by Supabase.",
+      "category": "Public Contest",
+      "status": "active",
+      "start_time": "2026-09-21T10:11:53.695Z",
+      "end_time": "2026-10-22T10:11:53.696Z",
+      "max_submissions_per_device": 2,
+      "whatsapp_channel_url": "https://whatsapp.com",
+      "whatsapp_channel_name": "Voters Decide Official Channel",
+      "is_public_leaderboard_visible": true,
+      "allow_contestant_registration": true,
+      "views_count": 3494,
+      "followers_count": 1250,
+      "created_at": "2026-09-22T10:11:53.696Z"
+    }
+  ],
+  "contestants": [],
+  "participations": [],
+  "abuse_logs": []
+}
