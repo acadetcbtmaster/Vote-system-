@@ -69,17 +69,12 @@ export default function App() {
   useEffect(() => {
     const recordPageView = async () => {
       try {
-        const res = await fetch('/api/contests/official-contest/view', {
-          method: 'POST',
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (typeof data.views_count === 'number') {
-            setViewsCount(data.views_count);
-          }
-          if (typeof data.followers_count === 'number') {
-            setFollowersCount(data.followers_count);
-          }
+        const data = await dataService.recordView(contest?.slug || 'official-contest');
+        if (typeof data.views_count === 'number') {
+          setViewsCount(data.views_count);
+        }
+        if (typeof data.followers_count === 'number') {
+          setFollowersCount(data.followers_count);
         }
       } catch (err) {
         console.warn('Could not record entry view', err);

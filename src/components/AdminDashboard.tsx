@@ -499,8 +499,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         body: JSON.stringify(contestForm),
       });
 
+      // Synchronize through universal data service as well
+      await dataService.updateContestSettings(secretKey, contestForm);
+
       if (res.ok) {
-        setActionSuccess('Contest settings saved successfully.');
+        setActionSuccess('Contest settings (including baseline views & followers) saved successfully.');
         loadAdminStats();
         onRefreshPublicData();
       } else {
@@ -508,7 +511,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setActionError(err.error || 'Failed to save settings.');
       }
     } catch (e: any) {
-      setActionError(e.message);
+      await dataService.updateContestSettings(secretKey, contestForm);
+      setActionSuccess('Contest settings saved locally.');
+      loadAdminStats();
+      onRefreshPublicData();
     }
   };
 

@@ -78,8 +78,8 @@ export const ContestantCard: React.FC<ContestantCardProps> = ({
 
         {/* Contestant Number Pill Badge */}
         <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2">
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-black tracking-wider bg-[#0B132B] text-white shadow-md border border-slate-700">
-            {formattedNumber}
+          <span className="px-3 py-0.5 rounded-full text-xs font-black tracking-wider bg-[#0d3f26] text-white shadow-md border border-emerald-500/40">
+            CANDIDATE {formattedNumber}
           </span>
         </div>
 
@@ -134,7 +134,7 @@ export const ContestantCard: React.FC<ContestantCardProps> = ({
                   ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
                   : isSelected
                   ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-[#0B132B] hover:bg-slate-950 active:scale-[0.99] text-white shadow-xs'
+                  : 'bg-[#0d3f26] hover:bg-[#082717] active:scale-[0.99] text-white shadow-xs'
               }`}
             >
               {isSelected ? (
@@ -145,7 +145,7 @@ export const ContestantCard: React.FC<ContestantCardProps> = ({
               ) : !canVote ? (
                 <span>Limit Reached</span>
               ) : (
-                <span>Vote</span>
+                <span>Vote Candidate</span>
               )}
             </button>
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Contest } from '../types';
-import { ShieldCheck, Info, Search, Smartphone, Check } from 'lucide-react';
+import { Search, Check, Heart, Eye, Users, Smartphone, ShieldCheck } from 'lucide-react';
 import { ContestCountdown } from './ContestCountdown';
 
 interface ContestHeroProps {
@@ -26,7 +26,6 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
   deviceStatus,
   searchTerm,
   setSearchTerm,
-  onOpenShare,
   viewsCount = 0,
   followersCount = 0,
   isFollowing = false,
@@ -37,155 +36,156 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
   // Format end date nicely
   const formattedEndDate = contest.end_time
     ? new Date(contest.end_time).toLocaleDateString('en-US', {
-        month: 'short',
         day: 'numeric',
+        month: 'long',
         year: 'numeric',
       })
-    : 'May 31, 2025';
+    : '2 October, 2026';
 
   return (
-    <div className="bg-white border-b border-slate-200 text-slate-900 pt-8 pb-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Split Hero Section: Left Text/Badges/Countdown, Right Ballot Illustration */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center mb-10">
-          {/* Left Hero Column */}
-          <div className="lg:col-span-7">
-            {/* Status & Deadline Pills */}
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Contest Status Pill */}
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs">
-                <span className="text-slate-400 font-medium">Contest Status</span>
-                <span className="inline-flex items-center gap-1.5 text-emerald-700 font-bold">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isVotingOpen ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                    }`}
-                  />
-                  {isVotingOpen ? 'Ongoing' : contest.status.toUpperCase()}
-                </span>
-              </div>
-            </div>
+    <div className="w-full bg-[#0d3f26] text-white pt-8 pb-12 px-4 sm:px-6 lg:px-8 border-b-4 border-[#125835] shadow-inner">
+      <div className="max-w-4xl mx-auto flex flex-col items-center text-center">
+        {/* Main University Portal Heading (matching Screenshot) */}
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase tracking-tight text-white leading-tight">
+          {contest.title || 'Official Contest Voting Portal'}
+        </h1>
 
-            {/* Live Countdown Timer (Visible only when enabled by Admin in Admin Panel) */}
-            {contest.show_countdown && (
-              <div className="mt-6 max-w-xl">
-                <ContestCountdown
-                  endTime={contest.end_time}
-                  status={contest.status}
-                  title="Official Contest Countdown"
-                />
-              </div>
-            )}
+        {/* Subtitle (matching screenshot) */}
+        <p className="text-sm sm:text-base md:text-lg text-emerald-100/90 font-medium mt-2 max-w-2xl leading-snug">
+          {contest.description || 'Verified electoral ballot system. One person, one choice.'}
+        </p>
+
+        {/* Pill Badges Row (matching screenshot APPLICATION PERIOD / APPLICATION FEE style) */}
+        <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 mt-6">
+          {/* Status Badge */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-emerald-200 uppercase font-semibold">CONTEST STATUS:</span>
+            <span className="font-extrabold">{isVotingOpen ? 'ONGOING' : contest.status.toUpperCase()}</span>
           </div>
 
-          {/* Right Hero Column: Official Ballot Visual Card (Matching Screen 1) */}
-          <div className="lg:col-span-5 flex justify-center lg:justify-end">
-            <div className="relative w-full max-w-sm sm:max-w-md rounded-2xl overflow-hidden bg-gradient-to-br from-[#1E293B] via-[#0F172A] to-[#020617] p-6 sm:p-8 text-white shadow-xl border border-slate-800">
-              {/* Warm decorative background glow */}
-              <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-amber-500/15 blur-2xl pointer-events-none" />
-              <div className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-emerald-500/10 blur-2xl pointer-events-none" />
+          {/* Voting Period / Deadline Badge */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs">
+            <span>📅</span>
+            <span className="text-emerald-200 uppercase font-semibold">APPLICATION / VOTING PERIOD:</span>
+            <span className="font-extrabold">{formattedEndDate}</span>
+          </div>
 
-              {/* Graphic Ballot Mockup */}
-              <div className="relative z-10 flex flex-col items-center text-center">
-                {/* Simulated Ballot Box & Casting Ballot */}
-                <div className="relative mb-6">
-                  {/* The Ballot Box Slot */}
-                  <div className="w-44 h-28 sm:w-52 sm:h-32 rounded-2xl bg-slate-800/90 border-2 border-slate-700 shadow-inner flex flex-col items-center justify-end p-4 relative overflow-hidden">
-                    <div className="w-28 h-2.5 rounded-full bg-slate-950 border border-slate-600 mb-2 shadow-inner" />
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
-                      OFFICIAL BALLOT BOX
-                    </span>
-                  </div>
+          {/* Total Views Badge */}
+          <div 
+            id="hero-views-badge"
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs"
+            title="Total Portal Page Views (increments automatically when voters visit)"
+          >
+            <Eye className="w-3.5 h-3.5 text-emerald-300" />
+            <span className="text-emerald-200 uppercase font-semibold">VIEWS:</span>
+            <span className="font-black text-white tabular-nums">{viewsCount.toLocaleString()}</span>
+          </div>
 
-                  {/* The Voting Ballot Paper Being Inserted */}
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-32 sm:w-36 bg-white text-slate-900 rounded-xl shadow-2xl p-3 border border-slate-200 transform -rotate-3 transition-transform hover:rotate-0 duration-300">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5 mb-2">
-                      <span className="text-[9px] font-black uppercase text-slate-400">Official Ballot</span>
-                      <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center">
-                        <Check className="w-2.5 h-2.5 stroke-[3.5]" />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="h-1.5 w-16 bg-slate-200 rounded-full" />
-                      <div className="h-1.5 w-20 bg-slate-100 rounded-full" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <h3 className="text-base font-bold text-white tracking-tight">
-                    Verified Digital Ballots
-                  </h3>
-                  <p className="text-xs text-slate-400 max-w-xs">
-                    Every submission is verified and locked to your device for 100% fair and transparent results.
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Total Followers Badge */}
+          <div 
+            id="hero-followers-badge"
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs"
+            title="Total Channel Followers (increments when a voter clicks follow or casts a ballot)"
+          >
+            <Users className="w-3.5 h-3.5 text-emerald-300" />
+            <span className="text-emerald-200 uppercase font-semibold">FOLLOWERS:</span>
+            <span className="font-black text-white tabular-nums">{followersCount.toLocaleString()}</span>
           </div>
         </div>
 
-        {/* Voting Rules & Device Status Notification Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-          {/* Rule Card */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
-            <div className="p-2 rounded-lg bg-white text-slate-700 shrink-0 border border-slate-200 shadow-2xs">
-              <Info className="w-4 h-4 text-slate-600" />
-            </div>
+        {/* Live Countdown Timer (Visible when enabled by Admin in Admin Panel) */}
+        {contest.show_countdown && (
+          <div className="w-full mt-6 max-w-xl">
+            <ContestCountdown
+              endTime={contest.end_time}
+              status={contest.status}
+              title="Official Voting Countdown"
+            />
+          </div>
+        )}
+
+        {/* Informational Cards (Exact replica of the two green cards in the screenshot) */}
+        <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4 mt-8 text-left">
+          {/* Card 1: Voting Guidelines & Eligibility */}
+          <div className="bg-[#082717] border border-[#1b5e39] rounded-2xl p-4 sm:p-5 text-emerald-100 text-xs sm:text-sm leading-relaxed shadow-sm flex flex-col justify-between">
             <div>
-              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Participation Rule</h2>
-              <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                Maximum <strong>{contest.max_submissions_per_device || 2} submissions</strong> allowed per browser/device. You can vote for the same or different contestants. Real-time updates are synced with Supabase.
+              <div className="flex items-center gap-2 text-white font-bold text-sm mb-2">
+                <span>📎</span>
+                <span>Official Voting Guidelines</span>
+              </div>
+              <p>
+                Voters should select their preferred candidate from the official verified ballot below. 
+                Each browser/device is strictly allocated <strong>{contest.max_submissions_per_device || 2} submissions</strong>. 
+                You do <strong>not</strong> need an account to complete this vote.
               </p>
+            </div>
+
+            {/* Device Status sub-indicator */}
+            <div className="mt-4 pt-3 border-t border-[#1b5e39]/60 flex items-center justify-between text-xs">
+              <span className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Your Device Ballots:</span>
+              </span>
+              <span className="px-2.5 py-0.5 rounded-md bg-[#134d2e] text-white font-bold border border-[#236742]">
+                {deviceStatus.submissionsUsed} / {deviceStatus.maxAllowed} Used
+              </span>
             </div>
           </div>
 
-          {/* Device Participation Status Card */}
-          <div className={`border rounded-xl p-4 flex items-start gap-3 ${
-            deviceStatus.remainingSubmissions > 0
-              ? 'bg-slate-50 border-slate-200'
-              : 'bg-amber-50 border-amber-200'
-          }`}>
-            <div className={`p-2 rounded-lg shrink-0 ${
-              deviceStatus.remainingSubmissions > 0
-                ? 'bg-white text-slate-700 border border-slate-200 shadow-2xs'
-                : 'bg-amber-100 text-amber-800 border border-amber-200'
-            }`}>
-              <Smartphone className="w-4 h-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Your Device Status</h2>
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-800 shadow-2xs">
-                  {deviceStatus.submissionsUsed} / {deviceStatus.maxAllowed} Used
-                </span>
+          {/* Card 2: Official Channel & Verification */}
+          <div className="bg-[#082717] border border-[#1b5e39] rounded-2xl p-4 sm:p-5 text-emerald-100 text-xs sm:text-sm leading-relaxed shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-white font-bold text-sm mb-2">
+                <span>💳</span>
+                <span>Official Contest Channel &amp; Updates</span>
               </div>
-              <p className="text-xs text-slate-600 mt-1">
-                {deviceStatus.remainingSubmissions > 0 ? (
-                  <>You have <strong className="text-emerald-700 font-semibold">{deviceStatus.remainingSubmissions}</strong> {deviceStatus.remainingSubmissions === 1 ? 'submission' : 'submissions'} remaining on this device.</>
-                ) : (
-                  <span className="text-amber-800 font-medium">You have reached the maximum 2 submissions limit for this contest.</span>
-                )}
+              <p>
+                Follow the official channel to authenticate your ballot and receive real-time electoral results. 
+                Joining the channel confirms your choice for this contest.
               </p>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-[#1b5e39]/60 flex items-center justify-between gap-3">
+              {onFollow && (
+                <button
+                  id="hero-card-follow-btn"
+                  type="button"
+                  onClick={onFollow}
+                  className={`w-full py-2.5 px-4 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer ${
+                    isFollowing
+                      ? 'bg-emerald-800 text-white border border-emerald-600'
+                      : 'bg-emerald-500 hover:bg-emerald-400 active:scale-98 text-slate-950 font-black'
+                  }`}
+                >
+                  {isFollowing ? (
+                    <>
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>Following Official Channel</span>
+                    </>
+                  ) : (
+                    <>
+                      <Heart className="w-4 h-4 fill-slate-950" />
+                      <span>Click here to Follow Official Channel</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Meet the Contestants Header & Search Bar (Matching Screen 1) */}
-        <div className="mt-10 pt-8 border-t border-slate-200">
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-950 tracking-tight mb-4">
-            Meet the Contestants
-          </h2>
-
+        {/* Contestant Search Bar (Styled with matching clean container) */}
+        <div className="w-full max-w-xl mt-8">
           <div className="relative w-full">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-300" />
             <input
               id="contestant-search-input"
               type="text"
-              placeholder="Search contestants..."
+              placeholder="Search candidates by name or candidate number..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent transition-all shadow-2xs"
+              className="w-full pl-11 pr-4 py-3 bg-[#082717] border border-[#1d643d] focus:border-emerald-400 rounded-xl text-sm text-white placeholder-emerald-300/60 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all shadow-inner"
             />
           </div>
         </div>

@@ -292,6 +292,9 @@ export const dataService = {
       if (res.ok) {
         const data = await res.json();
         if (typeof data.followers_count === 'number') {
+          const contest = getLocalContest();
+          contest.followers_count = data.followers_count;
+          saveLocalContest(contest);
           return data.followers_count;
         }
       }
@@ -301,6 +304,32 @@ export const dataService = {
     contest.followers_count = (contest.followers_count || 1250) + 1;
     saveLocalContest(contest);
     return contest.followers_count;
+  },
+
+  // 4b. Record Page View (when a user visits the website)
+  async recordView(slug = 'official-contest'): Promise<{ views_count: number; followers_count: number }> {
+    try {
+      const res = await fetch(`/api/contests/${slug}/view`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        const contest = getLocalContest();
+        if (typeof data.views_count === 'number') contest.views_count = data.views_count;
+        if (typeof data.followers_count === 'number') contest.followers_count = data.followers_count;
+        saveLocalContest(contest);
+        return {
+          views_count: contest.views_count || 0,
+          followers_count: contest.followers_count || 0,
+        };
+      }
+    } catch {}
+
+    const contest = getLocalContest();
+    contest.views_count = (contest.views_count || 3496) + 1;
+    saveLocalContest(contest);
+    return {
+      views_count: contest.views_count,
+      followers_count: contest.followers_count || 1250,
+    };
   },
 
   // 5. Submit Contestant Registration
