@@ -2068,6 +2068,34 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
               </li>
             </ol>
           </div>
+
+          {/* GitHub Pages Host Live Section */}
+          <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-md space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-slate-700 rounded-lg">
+                  <ExternalLink className="w-4 h-4 text-emerald-400" />
+                </span>
+                <h3 className="text-sm font-bold text-white">
+                  GitHub Pages Automated Deployment
+                </h3>
+              </div>
+              <span className="text-[10px] uppercase font-bold tracking-wider bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 px-2.5 py-0.5 rounded-full">
+                READY TO HOST
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Your repository contains the pre-configured GitHub Actions workflow (<code className="font-mono text-emerald-300">.github/workflows/deploy.yml</code>), client-side single-page router (<code className="font-mono text-emerald-300">404.html</code>), and relative asset paths (<code className="font-mono text-emerald-300">base: './'</code>).
+            </p>
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-700/60 font-mono text-[11px] text-slate-200 space-y-1">
+              <div className="text-slate-400"># Run these 2 commands in your terminal to publish to your repo:</div>
+              <div className="text-emerald-400 font-bold select-all">git remote add origin https://github.com/&lt;your-username&gt;/&lt;your-repo&gt;.git</div>
+              <div className="text-emerald-400 font-bold select-all">git push -u origin main</div>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Then go to your GitHub Repo &rarr; <strong>Settings</strong> &rarr; <strong>Pages</strong> &rarr; Source: <strong>GitHub Actions</strong>. GitHub will automatically build and host the website live on the web!
+            </p>
+          </div>
         </div>
       )}
 
