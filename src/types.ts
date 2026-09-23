@@ -15,6 +15,7 @@ export interface Contest {
   whatsapp_channel_name: string;
   is_public_leaderboard_visible: boolean;
   allow_contestant_registration: boolean;
+  show_countdown?: boolean;
   views_count?: number;
   followers_count?: number;
   last_devices_reset_at?: string;

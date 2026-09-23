@@ -22,6 +22,7 @@ const DEFAULT_CONTEST: Contest = {
   whatsapp_channel_name: 'Voters Decide Official Channel',
   is_public_leaderboard_visible: true,
   allow_contestant_registration: true,
+  show_countdown: false,
   views_count: 3482,
   followers_count: 1250,
   created_at: new Date().toISOString(),
@@ -420,5 +421,31 @@ export const dataService = {
       success: true,
       message: 'All device restrictions have been refreshed successfully for the new contest!',
     };
+  },
+
+  // 8. Update Contest Settings (Supports show_countdown toggle)
+  async updateContestSettings(token: string, updates: Partial<Contest>): Promise<{ success: boolean; contest?: Contest; error?: string }> {
+    try {
+      const res = await fetch('/api/admin/contests/official-contest', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': token,
+        },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.contest) {
+          saveLocalContest(data.contest);
+          return { success: true, contest: data.contest };
+        }
+      }
+    } catch {}
+
+    const contest = getLocalContest();
+    Object.assign(contest, updates);
+    saveLocalContest(contest);
+    return { success: true, contest };
   }
 };

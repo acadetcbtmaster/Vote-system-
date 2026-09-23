@@ -672,6 +672,31 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
     handleAdjustCountdownTime(newTime, 'Voting countdown ended immediately.');
   };
 
+  const handleToggleCountdownVisibility = async (enabled: boolean) => {
+    setCountdownSaving(true);
+    setActionSuccess(null);
+    setActionError(null);
+    try {
+      const res = await dataService.updateContestSettings(secretKey, { show_countdown: enabled });
+      if (res.success) {
+        setContestForm(prev => ({ ...prev, show_countdown: enabled }));
+        setActionSuccess(
+          enabled
+            ? 'Front page countdown timer ENABLED! It is now visible to all voters.'
+            : 'Front page countdown timer DISABLED! It has been removed from the front page.'
+        );
+        await loadAdminStats();
+        onRefreshPublicData();
+      } else {
+        setActionError(res.error || 'Failed to update countdown timer visibility.');
+      }
+    } catch (e: any) {
+      setActionError(e.message || 'Error updating countdown visibility.');
+    } finally {
+      setCountdownSaving(false);
+    }
+  };
+
   // Login Screen
   if (!isAuthenticated) {
     return (
@@ -930,6 +955,13 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
                 <span className="text-emerald-700 font-mono">
                   {formatRemainingCountdown(stats?.contest?.end_time)}
                 </span>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                  contestForm.show_countdown
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                }`}>
+                  {contestForm.show_countdown ? '● Front Page: VISIBLE' : '○ Front Page: HIDDEN'}
+                </span>
                 {stats?.contest?.end_time && (
                   <span className="text-xs font-medium text-slate-500">
                     (Deadline:{' '}
@@ -945,6 +977,19 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={countdownSaving}
+              onClick={() => handleToggleCountdownVisibility(!contestForm.show_countdown)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                contestForm.show_countdown
+                  ? 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500'
+              }`}
+              title={contestForm.show_countdown ? 'Hide countdown from the front page' : 'Enable countdown on the front page'}
+            >
+              {countdownSaving ? 'Saving...' : contestForm.show_countdown ? 'Hide from Front Page' : 'Enable on Front Page'}
+            </button>
             <button
               type="button"
               onClick={() => handleQuickExtendHours(24)}
@@ -1742,6 +1787,48 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
                 </div>
               </div>
 
+              {/* Front Page Visibility Control Card */}
+              <div className="p-4 rounded-xl border bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900 uppercase">
+                      Front Page Countdown Display
+                    </span>
+                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                      contestForm.show_countdown
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-slate-100 text-slate-700 border border-slate-300'
+                    }`}>
+                      {contestForm.show_countdown ? '● ENABLED (VISIBLE ON HOMEPAGE)' : '○ DISABLED (REMOVED FROM HOMEPAGE)'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {contestForm.show_countdown
+                      ? 'The countdown timer and deadline badge are currently visible to voters on the front page.'
+                      : 'The countdown timer is currently completely hidden from the front page until you enable it here.'}
+                  </p>
+                </div>
+
+                <div className="shrink-0">
+                  <button
+                    type="button"
+                    disabled={countdownSaving}
+                    onClick={() => handleToggleCountdownVisibility(!contestForm.show_countdown)}
+                    className={`px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-xs cursor-pointer ${
+                      contestForm.show_countdown
+                        ? 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-300'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500'
+                    }`}
+                  >
+                    {countdownSaving
+                      ? 'Updating...'
+                      : contestForm.show_countdown
+                      ? 'Hide / Remove Timer'
+                      : '✓ Enable Timer on Front Page'}
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                   Adjust Countdown End Date & Time
@@ -1943,6 +2030,16 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
                 />
                 <span>Allow Candidate Registration</span>
               </label>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={contestForm.show_countdown ?? false}
+                  onChange={(e) => setContestForm({ ...contestForm, show_countdown: e.target.checked })}
+                  className="w-4 h-4 text-emerald-600 rounded"
+                />
+                <span className="font-bold text-slate-900">Show Countdown Timer on Front Page</span>
+              </label>
             </div>
 
             <div className="pt-4 flex justify-end">
@@ -2143,6 +2240,30 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
                     : 'Not specified'}
                 </span>
               </div>
+            </div>
+
+            {/* Front Page Visibility Switch */}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 mb-4 text-xs flex items-center justify-between gap-3">
+              <div>
+                <span className="font-bold text-slate-800 block">Front Page Timer Display</span>
+                <span className="text-[11px] text-slate-500">
+                  {contestForm.show_countdown
+                    ? 'Countdown is currently VISIBLE to voters.'
+                    : 'Countdown is currently HIDDEN from voters.'}
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={countdownSaving}
+                onClick={() => handleToggleCountdownVisibility(!contestForm.show_countdown)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                  contestForm.show_countdown
+                    ? 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-300'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500'
+                }`}
+              >
+                {contestForm.show_countdown ? 'Hide from Front Page' : 'Show on Front Page'}
+              </button>
             </div>
 
             {/* 1-Click Quick Extension Buttons */}

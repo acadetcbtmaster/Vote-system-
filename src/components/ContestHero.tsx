@@ -75,12 +75,14 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
                 </span>
               </div>
 
-              {/* Voting Ends Pill */}
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <span className="text-slate-400 font-medium">Voting Ends</span>
-                <span className="text-slate-900 font-bold">{formattedEndDate}</span>
-              </div>
+              {/* Voting Ends Pill (Shown when countdown timer is enabled by Admin) */}
+              {contest.show_countdown && (
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-slate-400 font-medium">Voting Ends</span>
+                  <span className="text-slate-900 font-bold">{formattedEndDate}</span>
+                </div>
+              )}
 
               {/* 1. GREEN SLOT: Numbers of views slot */}
               <div 
@@ -149,14 +151,16 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
               )}
             </div>
 
-            {/* Live Countdown Timer */}
-            <div className="mt-6 max-w-xl">
-              <ContestCountdown
-                endTime={contest.end_time}
-                status={contest.status}
-                title="Official Contest Countdown"
-              />
-            </div>
+            {/* Live Countdown Timer (Visible only when enabled by Admin in Admin Panel) */}
+            {contest.show_countdown && (
+              <div className="mt-6 max-w-xl">
+                <ContestCountdown
+                  endTime={contest.end_time}
+                  status={contest.status}
+                  title="Official Contest Countdown"
+                />
+              </div>
+            )}
           </div>
 
           {/* Right Hero Column: Official Ballot Visual Card (Matching Screen 1) */}

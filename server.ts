@@ -1063,6 +1063,8 @@ app.patch('/api/admin/contests/:id', requireAdmin, async (req, res) => {
     'whatsapp_channel_name',
     'is_public_leaderboard_visible',
     'allow_contestant_registration',
+    'show_countdown',
+    'is_countdown_visible',
     'banner_url',
     'slug',
     'views_count',
