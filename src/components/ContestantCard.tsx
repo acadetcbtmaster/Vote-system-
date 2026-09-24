@@ -36,29 +36,29 @@ export const ContestantCard: React.FC<ContestantCardProps> = ({
   };
 
   return (
-    <div 
+    <div
       id={`contestant-card-${contestant.id}`}
-      className={`group relative bg-white rounded-2xl border transition-all duration-200 flex flex-col p-3 sm:p-3.5 shadow-2xs hover:shadow-md ${
+      className={`group relative bg-[#151921]/95 backdrop-blur-md rounded-xl border transition-all duration-200 flex flex-col p-3.5 sm:p-4 shadow-lg hover:shadow-2xl ${
         isTargeted
-          ? 'border-emerald-500 ring-4 ring-emerald-500/20 bg-emerald-50/10'
-          : isSelected 
-          ? 'border-slate-900 ring-2 ring-slate-900/10' 
-          : 'border-slate-200/90 hover:border-slate-300'
+          ? 'border-amber-400 ring-2 ring-amber-400/30 bg-[#1A202A]'
+          : isSelected
+          ? 'border-amber-400 ring-2 ring-amber-400/20 bg-[#1A202A]'
+          : 'border-white/10 hover:border-white/20 hover:bg-[#181E27]'
       }`}
     >
       {/* Targeted candidate banner when arriving via direct personal share link */}
       {isTargeted && (
-        <div className="mb-2.5 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-extrabold flex items-center justify-between shadow-xs animate-pulse">
+        <div className="mb-2.5 px-3 py-1 rounded-lg bg-amber-500 text-black text-[11px] font-black uppercase tracking-wider flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5" />
+            <Sparkles className="w-3.5 h-3.5 fill-black" />
             <span>Invited Candidate</span>
           </div>
-          <span className="text-[10px] uppercase opacity-90">Direct Link</span>
+          <span className="text-[10px] font-extrabold opacity-80">Direct Link</span>
         </div>
       )}
 
-      {/* Photo Container with Warm Beige/Sand Background */}
-      <div className="relative aspect-4/3 w-full bg-[#F5EFEB] rounded-xl overflow-hidden flex items-center justify-center">
+      {/* Photo Frame Container */}
+      <div className="relative aspect-4/3 w-full bg-[#0D1015] rounded-lg overflow-hidden border border-white/10 flex items-center justify-center">
         {contestant.photo_url && !imageError ? (
           <img
             src={contestant.photo_url}
@@ -69,56 +69,62 @@ export const ContestantCard: React.FC<ContestantCardProps> = ({
             onError={() => setImageError(true)}
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-slate-700 p-4">
-            <div className="w-14 h-14 rounded-full bg-slate-200/80 border border-slate-300 flex items-center justify-center text-slate-800 font-extrabold text-lg shadow-2xs">
+          <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400 p-4">
+            <div className="w-14 h-14 rounded-full bg-[#1A212B] border border-white/15 flex items-center justify-center text-zinc-200 font-extrabold text-lg shadow-inner">
               {getInitials(contestant.name)}
             </div>
           </div>
         )}
 
-        {/* Contestant Number Pill Badge */}
+        {/* Candidate Number Pill Badge */}
         <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2">
-          <span className="px-3 py-0.5 rounded-full text-xs font-black tracking-wider bg-[#0d3f26] text-white shadow-md border border-emerald-500/40">
-            CANDIDATE {formattedNumber}
+          <span className="px-3 py-1 rounded-md text-xs font-black tracking-wider bg-black/80 backdrop-blur-md text-zinc-200 shadow-md border border-white/15 uppercase">
+            Candidate {formattedNumber}
           </span>
         </div>
 
         {/* Rank Badge */}
         {rank && (
           <div className="absolute top-2.5 right-2.5">
-            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold shadow-sm ${
-              rank === 1 ? 'bg-amber-400 text-slate-950' :
-              rank === 2 ? 'bg-slate-300 text-slate-900' :
-              rank === 3 ? 'bg-amber-600 text-white' :
-              'bg-slate-900/80 text-white'
-            }`}>
-              #{rank}
+            <span
+              className={`px-2.5 py-0.5 rounded-md text-[11px] font-black shadow-md uppercase tracking-wider ${
+                rank === 1
+                  ? 'bg-amber-400 text-black'
+                  : rank === 2
+                  ? 'bg-zinc-300 text-black'
+                  : rank === 3
+                  ? 'bg-amber-700 text-white'
+                  : 'bg-black/70 text-zinc-300 border border-white/10'
+              }`}
+            >
+              Rank #{rank}
             </span>
           </div>
         )}
       </div>
 
       {/* Content Section */}
-      <div className="pt-3 pb-1 flex-1 flex flex-col justify-between">
+      <div className="pt-3.5 pb-1 flex-1 flex flex-col justify-between">
         <div>
-          <h3 className="text-base font-bold text-slate-950 leading-snug group-hover:text-slate-800 transition-colors line-clamp-1">
+          <h3 className="text-base sm:text-lg font-bold text-white leading-snug group-hover:text-amber-300 transition-colors line-clamp-1">
             {contestant.name}
           </h3>
 
-          <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mt-1 min-h-[32px]">
-            {contestant.bio || 'Candidate for the official Voters Decide contest.'}
+          <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed mt-1 min-h-[34px]">
+            {contestant.bio || 'Official ballot candidate for Voters Decide.'}
           </p>
         </div>
 
         {/* Footer: Vote Count & Action Buttons */}
-        <div className="pt-2 mt-auto">
+        <div className="pt-3 mt-auto">
           {showVoteCount && (
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium mb-2.5">
-              <span className="text-sm">🗳️</span>
-              <span className="text-slate-900 font-bold tabular-nums">
+            <div className="flex items-center justify-between text-xs text-zinc-400 font-medium mb-3 pb-2 border-b border-white/10">
+              <span className="uppercase text-[11px] tracking-wider text-zinc-400 font-semibold">
+                Verified Votes
+              </span>
+              <span className="text-white font-extrabold tabular-nums text-sm">
                 {contestant.vote_count.toLocaleString()}
               </span>
-              <span>votes</span>
             </div>
           )}
 
@@ -129,12 +135,12 @@ export const ContestantCard: React.FC<ContestantCardProps> = ({
               type="button"
               onClick={() => onSelect(contestant)}
               disabled={!canVote}
-              className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${
+              className={`flex-1 py-2.5 px-3 rounded-lg font-extrabold text-xs sm:text-sm tracking-wide transition-all flex items-center justify-center gap-2 shadow-sm ${
                 !canVote
-                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  ? 'bg-zinc-800 text-zinc-500 border border-zinc-700 cursor-not-allowed'
                   : isSelected
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-[#0d3f26] hover:bg-[#082717] active:scale-[0.99] text-white shadow-xs'
+                  ? 'bg-emerald-500 text-black'
+                  : 'bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-black shadow-amber-500/20'
               }`}
             >
               {isSelected ? (
@@ -149,16 +155,16 @@ export const ContestantCard: React.FC<ContestantCardProps> = ({
               )}
             </button>
 
-            {/* Personal Sharing Button */}
+            {/* Candidate Share Button */}
             {onShare && (
               <button
                 id={`share-contestant-${contestant.id}-btn`}
                 type="button"
                 onClick={() => onShare(contestant)}
-                className="py-2.5 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 active:scale-[0.98] text-slate-700 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
+                className="py-2.5 px-3 rounded-lg border border-white/10 bg-[#1C232E] hover:bg-[#252E3D] active:scale-[0.98] text-zinc-300 hover:text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm"
                 title={`Share direct link to vote for ${contestant.name}`}
               >
-                <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
                 <span className="hidden sm:inline">Share</span>
               </button>
             )}

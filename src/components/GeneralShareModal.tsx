@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Contest } from '../types';
-import { X, Check, Copy, Share2, Sparkles, Send } from 'lucide-react';
+import { X, Check, Copy, Share2, Sparkles, MessageCircle, Twitter, Facebook, Send, ArrowLeft } from 'lucide-react';
+import { VotersDecideLogo } from './VotersDecideLogo';
 
 interface GeneralShareModalProps {
   contest: Contest | null;
@@ -48,152 +49,150 @@ export const GeneralShareModal: React.FC<GeneralShareModalProps> = ({
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const handleNativeShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: contestTitle,
-          text: shareText,
-          url: contestUrl,
-        });
-      } catch {
-        // user cancelled
-      }
-    } else {
-      handleCopyLink();
-    }
-  };
-
   return (
-    <div 
+    <div
       id="general-share-modal-overlay"
-      className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md overflow-hidden animate-in fade-in duration-200"
     >
-      <div 
+      <div
         id="general-share-modal"
-        className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="relative w-full max-w-md bg-[#141820] text-white rounded-2xl shadow-2xl border border-white/10 flex flex-col max-h-[calc(100dvh-1.25rem)] sm:max-h-[calc(100dvh-2.5rem)] my-auto overflow-hidden"
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+        <div className="shrink-0 px-4 py-3 sm:px-6 sm:py-3.5 border-b border-white/10 flex items-center justify-between bg-[#11141A]">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-amber-500/15 text-amber-600 flex items-center justify-center text-xs">
-              <Sparkles className="w-3.5 h-3.5" />
-            </div>
-            <span className="font-extrabold text-sm tracking-tight text-slate-900">
-              Rally &amp; Share Contest
+            <VotersDecideLogo size="sm" showText={false} />
+            <span className="font-extrabold text-sm tracking-tight text-white">
+              Share Contest
             </span>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1 text-xs font-bold text-zinc-300 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer"
+              title="Return to contest"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back</span>
+            </button>
+
+            <button
+              id="close-general-share-modal-btn"
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center gap-1 text-xs font-bold text-zinc-400 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/10 cursor-pointer"
+              title="Cancel and close share"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Cancel</span>
+            </button>
+          </div>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4 sm:space-y-5">
           <div className="text-center space-y-1.5">
-            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-xl shadow-xs">
-              🗳️
+            <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-inner">
+              <Share2 className="w-6 h-6" />
             </div>
-            <h3 className="text-base font-extrabold text-slate-950">
-              Invite Friends &amp; Spread the Word
+            <h3 className="text-base font-extrabold text-white">
+              Invite Voters &amp; Spread the Word
             </h3>
-            <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
-              Share the official Voters Decide contest link to bring in voters and support candidates across communities.
+            <p className="text-xs text-zinc-400 max-w-xs mx-auto leading-relaxed">
+              Share this official contest portal link to invite voters to review candidates and submit their verified ballots.
             </p>
           </div>
 
-          {/* Social Channels 2x2 Grid */}
-          <div className="grid grid-cols-2 gap-2.5">
-            {/* WhatsApp */}
-            <button
-              type="button"
-              onClick={handleWhatsAppShare}
-              className="p-3 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] active:scale-[0.98] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-transform"
-            >
-              <span className="text-lg">💬</span>
-              <span>WhatsApp</span>
-            </button>
+          {/* Social Channels */}
+          <div>
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-2">
+              Share On Social Platforms
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={handleWhatsAppShare}
+                className="py-2.5 px-3 rounded-lg bg-[#25D366] hover:bg-[#20BD5A] text-black font-extrabold text-xs flex flex-col items-center justify-center gap-1 shadow-sm cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4 fill-black" />
+                <span>WhatsApp</span>
+              </button>
 
-            {/* X / Twitter */}
-            <button
-              type="button"
-              onClick={handleTwitterShare}
-              className="p-3 rounded-2xl bg-[#0F1419] hover:bg-black active:scale-[0.98] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-transform"
-            >
-              <span className="text-base font-black">𝕏</span>
-              <span>X (Twitter)</span>
-            </button>
+              <button
+                type="button"
+                onClick={handleTwitterShare}
+                className="py-2.5 px-3 rounded-lg bg-black hover:bg-zinc-900 border border-white/20 text-white font-bold text-xs flex flex-col items-center justify-center gap-1 shadow-sm cursor-pointer"
+              >
+                <Twitter className="w-4 h-4 fill-white" />
+                <span>X (Twitter)</span>
+              </button>
 
-            {/* Facebook */}
-            <button
-              type="button"
-              onClick={handleFacebookShare}
-              className="p-3 rounded-2xl bg-[#1877F2] hover:bg-[#166fe5] active:scale-[0.98] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-transform"
-            >
-              <span className="text-base font-black">f</span>
-              <span>Facebook</span>
-            </button>
+              <button
+                type="button"
+                onClick={handleFacebookShare}
+                className="py-2.5 px-3 rounded-lg bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold text-xs flex flex-col items-center justify-center gap-1 shadow-sm cursor-pointer"
+              >
+                <Facebook className="w-4 h-4 fill-white" />
+                <span>Facebook</span>
+              </button>
 
-            {/* Telegram */}
-            <button
-              type="button"
-              onClick={handleTelegramShare}
-              className="p-3 rounded-2xl bg-[#229ED9] hover:bg-[#1c8ec4] active:scale-[0.98] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-transform"
-            >
-              <Send className="w-4 h-4" />
-              <span>Telegram</span>
-            </button>
+              <button
+                type="button"
+                onClick={handleTelegramShare}
+                className="py-2.5 px-3 rounded-lg bg-[#0088CC] hover:bg-[#0077b3] text-white font-bold text-xs flex flex-col items-center justify-center gap-1 shadow-sm cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>Telegram</span>
+              </button>
+            </div>
           </div>
 
-          {/* Copy Contest URL Bar */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 block">
-              Official Contest Link:
-            </label>
+          {/* Copy Contest URL Box */}
+          <div>
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-2">
+              Contest Portal Link
+            </span>
             <div className="flex items-center gap-2">
               <input
                 type="text"
                 readOnly
                 value={contestUrl}
-                className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-700 select-all truncate focus:outline-none"
+                className="flex-1 px-3 py-2.5 bg-[#0C0F14] border border-white/10 rounded-lg text-xs font-mono text-zinc-300 select-all focus:outline-none"
               />
               <button
                 type="button"
                 onClick={handleCopyLink}
-                className={`py-2.5 px-3.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                className={`px-4 py-2.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
                   copied
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-[#0B132B] hover:bg-slate-900 text-white shadow-xs'
+                    ? 'bg-emerald-500 text-black'
+                    : 'bg-amber-500 hover:bg-amber-400 text-black'
                 }`}
               >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy</span>
-                  </>
-                )}
+                {copied ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copied ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
           </div>
 
-          {/* Native Share */}
-          {typeof navigator !== 'undefined' && 'share' in navigator && (
+          {/* Footer Back & Cancel Actions */}
+          <div className="pt-2 flex items-center gap-2 border-t border-white/10">
             <button
               type="button"
-              onClick={handleNativeShare}
-              className="w-full py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+              onClick={onClose}
+              className="flex-1 py-2.5 px-3 rounded-xl border border-white/10 bg-[#161B24] hover:bg-[#1E2532] text-xs font-bold text-zinc-300 hover:text-white transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <Share2 className="w-3.5 h-3.5 text-slate-500" />
-              <span>More Share Options</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back</span>
             </button>
-          )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 px-3 rounded-xl border border-white/10 bg-[#161B24] hover:bg-[#1E2532] text-xs font-bold text-zinc-400 hover:text-white transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Cancel</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

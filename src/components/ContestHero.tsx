@@ -1,7 +1,8 @@
 import React from 'react';
 import { Contest } from '../types';
-import { Search, Check, Heart, Eye, Users, Smartphone, ShieldCheck } from 'lucide-react';
+import { Search, ShieldCheck, Smartphone, Check, Heart, Eye, Users, Calendar, AlertCircle } from 'lucide-react';
 import { ContestCountdown } from './ContestCountdown';
+import { VotersDecideLogo } from './VotersDecideLogo';
 
 interface ContestHeroProps {
   contest: Contest;
@@ -33,140 +34,143 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
 }) => {
   const isVotingOpen = contest.status === 'active';
 
-  // Format end date nicely
+  // Format end date cleanly
   const formattedEndDate = contest.end_time
     ? new Date(contest.end_time).toLocaleDateString('en-US', {
         day: 'numeric',
-        month: 'long',
+        month: 'short',
         year: 'numeric',
       })
-    : '2 October, 2026';
+    : 'Ongoing';
 
   return (
-    <div className="w-full bg-[#0d3f26] text-white pt-8 pb-12 px-4 sm:px-6 lg:px-8 border-b-4 border-[#125835] shadow-inner">
-      <div className="max-w-4xl mx-auto flex flex-col items-center text-center">
-        {/* Main University Portal Heading (matching Screenshot) */}
-        <h1 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase tracking-tight text-white leading-tight">
-          {contest.title || 'Official Contest Voting Portal'}
-        </h1>
-
-        {/* Subtitle (matching screenshot) */}
-        <p className="text-sm sm:text-base md:text-lg text-emerald-100/90 font-medium mt-2 max-w-2xl leading-snug">
-          {contest.description || 'Verified electoral ballot system. One person, one choice.'}
-        </p>
-
-        {/* Pill Badges Row (matching screenshot APPLICATION PERIOD / APPLICATION FEE style) */}
-        <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 mt-6">
-          {/* Status Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-emerald-200 uppercase font-semibold">CONTEST STATUS:</span>
-            <span className="font-extrabold">{isVotingOpen ? 'ONGOING' : contest.status.toUpperCase()}</span>
+    <section className="relative w-full bg-gradient-to-b from-[#13171F] via-[#10141A] to-[#0F1216] border-b border-white/10 text-white pt-8 sm:pt-12 pb-10 sm:pb-14 px-4 sm:px-6 lg:px-8 overflow-hidden">
+      {/* Subtle depth lighting overlay */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-5xl h-64 bg-radial from-amber-500/5 via-transparent to-transparent pointer-events-none blur-3xl" />
+      
+      <div className="relative z-10 max-w-5xl mx-auto">
+        {/* Main Hero Header */}
+        <div className="text-center space-y-3 sm:space-y-4">
+          {/* Official Verification Tag */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-[#1C232E] border border-white/10 text-xs font-bold text-zinc-300 shadow-sm">
+            <span className={`w-2 h-2 rounded-full ${isVotingOpen ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <span className="uppercase tracking-widest text-[11px] text-zinc-400">Official Ballot</span>
+            <span className="text-zinc-600">|</span>
+            <span className="font-extrabold text-white">
+              {isVotingOpen ? 'Active Voting' : contest.status.toUpperCase()}
+            </span>
           </div>
 
-          {/* Voting Period / Deadline Badge */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs">
-            <span>📅</span>
-            <span className="text-emerald-200 uppercase font-semibold">APPLICATION / VOTING PERIOD:</span>
-            <span className="font-extrabold">{formattedEndDate}</span>
+          {/* Official Logo Display */}
+          <div className="flex justify-center pt-1 pb-1">
+            <VotersDecideLogo size="lg" showText={false} preferImage={false} />
           </div>
 
-          {/* Total Views Badge */}
-          <div 
-            id="hero-views-badge"
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs"
-            title="Total Portal Page Views (increments automatically when voters visit)"
-          >
-            <Eye className="w-3.5 h-3.5 text-emerald-300" />
-            <span className="text-emerald-200 uppercase font-semibold">VIEWS:</span>
-            <span className="font-black text-white tabular-nums">{viewsCount.toLocaleString()}</span>
-          </div>
+          {/* Main Platform Title */}
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black uppercase tracking-tight text-white font-sans leading-none">
+            {contest.title || 'Voters Decide'}
+          </h1>
 
-          {/* Total Followers Badge */}
-          <div 
-            id="hero-followers-badge"
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1a5a37] border border-[#2e7a4d] text-xs font-bold text-white shadow-xs"
-            title="Total Channel Followers (increments when a voter clicks follow or casts a ballot)"
-          >
-            <Users className="w-3.5 h-3.5 text-emerald-300" />
-            <span className="text-emerald-200 uppercase font-semibold">FOLLOWERS:</span>
-            <span className="font-black text-white tabular-nums">{followersCount.toLocaleString()}</span>
-          </div>
+          {/* Official Slogan from Logo */}
+          <p className="text-base sm:text-lg md:text-xl font-bold text-zinc-200 max-w-2xl mx-auto leading-relaxed tracking-wide">
+            Real People. <span className="text-[#1D7BF2]">Real Votes.</span> Real Winners.
+          </p>
+
+          {/* Subtle contest description if provided */}
+          {contest.description && (
+            <p className="text-xs sm:text-sm text-zinc-400 max-w-xl mx-auto leading-relaxed pt-1">
+              {contest.description}
+            </p>
+          )}
         </div>
 
-        {/* Live Countdown Timer (Visible when enabled by Admin in Admin Panel) */}
+        {/* Live Countdown Timer (Visible only when enabled by Admin) */}
         {contest.show_countdown && (
-          <div className="w-full mt-6 max-w-xl">
+          <div className="mt-8 max-w-xl mx-auto">
             <ContestCountdown
               endTime={contest.end_time}
               status={contest.status}
-              title="Official Voting Countdown"
+              title="Official Voting Deadline"
             />
           </div>
         )}
 
-        {/* Informational Cards (Exact replica of the two green cards in the screenshot) */}
-        <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4 mt-8 text-left">
-          {/* Card 1: Voting Guidelines & Eligibility */}
-          <div className="bg-[#082717] border border-[#1b5e39] rounded-2xl p-4 sm:p-5 text-emerald-100 text-xs sm:text-sm leading-relaxed shadow-sm flex flex-col justify-between">
+        {/* Informational Cards & Device Status Breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8 sm:mt-10">
+          {/* Card 1: Official Voting Rules */}
+          <div className="bg-[#161B23]/90 backdrop-blur-sm border border-white/10 rounded-xl p-5 shadow-lg flex flex-col justify-between">
             <div>
-              <div className="flex items-center gap-2 text-white font-bold text-sm mb-2">
-                <span>📎</span>
-                <span>Official Voting Guidelines</span>
+              <div className="flex items-center gap-2.5 text-white font-bold text-sm mb-2">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span className="uppercase tracking-wide text-xs">Participation Protocol</span>
               </div>
-              <p>
-                Voters should select their preferred candidate from the official verified ballot below. 
-                Each browser/device is strictly allocated <strong>{contest.max_submissions_per_device || 2} submissions</strong>. 
-                You do <strong>not</strong> need an account to complete this vote.
+              <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                Maximum <strong>{contest.max_submissions_per_device || 2} submissions</strong> allowed per browser/device. 
+                Every vote is cryptographically logged and locked to maintain 100% integrity.
               </p>
             </div>
 
-            {/* Device Status sub-indicator */}
-            <div className="mt-4 pt-3 border-t border-[#1b5e39]/60 flex items-center justify-between text-xs">
-              <span className="flex items-center gap-1.5 text-emerald-300 font-semibold">
-                <Smartphone className="w-3.5 h-3.5" />
+            {/* Device Submissions Status Indicator */}
+            <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
+              <span className="text-zinc-400 font-medium flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-zinc-400" />
                 <span>Your Device Ballots:</span>
               </span>
-              <span className="px-2.5 py-0.5 rounded-md bg-[#134d2e] text-white font-bold border border-[#236742]">
-                {deviceStatus.submissionsUsed} / {deviceStatus.maxAllowed} Used
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-md bg-[#1F2733] text-white font-black border border-white/10 tabular-nums">
+                  {deviceStatus.submissionsUsed} / {deviceStatus.maxAllowed} Used
+                </span>
+                {deviceStatus.remainingSubmissions > 0 ? (
+                  <span className="text-[11px] font-bold text-emerald-400">
+                    ({deviceStatus.remainingSubmissions} left)
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold text-amber-400">
+                    (Limit reached)
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Card 2: Official Channel & Verification */}
-          <div className="bg-[#082717] border border-[#1b5e39] rounded-2xl p-4 sm:p-5 text-emerald-100 text-xs sm:text-sm leading-relaxed shadow-sm flex flex-col justify-between">
+          {/* Card 2: Official Channel & Follow Confirmation */}
+          <div className="bg-[#161B23]/90 backdrop-blur-sm border border-white/10 rounded-xl p-5 shadow-lg flex flex-col justify-between">
             <div>
-              <div className="flex items-center gap-2 text-white font-bold text-sm mb-2">
-                <span>💳</span>
-                <span>Official Contest Channel &amp; Updates</span>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-white font-bold text-sm">
+                  <VotersDecideLogo size="sm" showText={false} />
+                  <span className="uppercase tracking-wide text-xs">Voters Decide Channel</span>
+                </div>
+                <span className="text-[11px] text-zinc-400 font-semibold tabular-nums">
+                  {followersCount.toLocaleString()} Followers
+                </span>
               </div>
-              <p>
-                Follow the official channel to authenticate your ballot and receive real-time electoral results. 
-                Joining the channel confirms your choice for this contest.
+              <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                Follow the official Voters Decide channel to authenticate your choice, receive real-time results, and verify contest updates.
               </p>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-[#1b5e39]/60 flex items-center justify-between gap-3">
+            <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between gap-3">
               {onFollow && (
                 <button
-                  id="hero-card-follow-btn"
+                  id="hero-follow-cta"
                   type="button"
                   onClick={onFollow}
-                  className={`w-full py-2.5 px-4 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer ${
+                  className={`w-full py-2.5 px-4 rounded-lg text-xs font-black tracking-wide transition-all flex items-center justify-center gap-2 shadow-md cursor-pointer ${
                     isFollowing
-                      ? 'bg-emerald-800 text-white border border-emerald-600'
-                      : 'bg-emerald-500 hover:bg-emerald-400 active:scale-98 text-slate-950 font-black'
+                      ? 'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                      : 'bg-amber-500 hover:bg-amber-400 active:scale-98 text-black font-extrabold shadow-amber-500/20'
                   }`}
                 >
                   {isFollowing ? (
                     <>
-                      <Check className="w-4 h-4 stroke-[3]" />
+                      <Check className="w-4 h-4 stroke-[3] text-emerald-400" />
                       <span>Following Official Channel</span>
                     </>
                   ) : (
                     <>
-                      <Heart className="w-4 h-4 fill-slate-950" />
-                      <span>Click here to Follow Official Channel</span>
+                      <Heart className="w-4 h-4 fill-black" />
+                      <span>Follow Official Channel</span>
                     </>
                   )}
                 </button>
@@ -175,21 +179,21 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
           </div>
         </div>
 
-        {/* Contestant Search Bar (Styled with matching clean container) */}
-        <div className="w-full max-w-xl mt-8">
+        {/* Contestant Search Bar */}
+        <div className="w-full max-w-2xl mx-auto mt-8 sm:mt-10">
           <div className="relative w-full">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-300" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
             <input
               id="contestant-search-input"
               type="text"
-              placeholder="Search candidates by name or candidate number..."
+              placeholder="Search contestants by name, candidate number, or keyword..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-[#082717] border border-[#1d643d] focus:border-emerald-400 rounded-xl text-sm text-white placeholder-emerald-300/60 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition-all shadow-inner"
+              className="w-full pl-11 pr-4 py-3.5 bg-[#171C24] border border-white/15 focus:border-amber-400 rounded-xl text-sm font-medium text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-400/30 transition-all shadow-md"
             />
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 };

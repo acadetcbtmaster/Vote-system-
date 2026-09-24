@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UserPlus, CheckCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { X, ArrowLeft, UserPlus, CheckCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 import { dataService } from '../services/dataService';
 
 interface ContestantRegisterModalProps {
@@ -91,27 +91,41 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 bg-slate-950/80 backdrop-blur-md overflow-hidden animate-in fade-in duration-200">
       <div 
         id="contestant-register-modal"
-        className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden"
+        className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 flex flex-col max-h-[calc(100dvh-1.25rem)] sm:max-h-[calc(100dvh-2.5rem)] my-auto overflow-hidden"
       >
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <div className="shrink-0 px-4 py-3 sm:px-6 sm:py-3.5 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-base font-bold">Apply as Contestant</h2>
+            <UserPlus className="w-4 h-4 text-emerald-400" />
+            <h2 className="text-sm sm:text-base font-bold">Apply as Contestant</h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="text-slate-400 hover:text-white p-1 rounded-lg"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-1 text-xs font-bold text-slate-300 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 cursor-pointer"
+              title="Return to contest"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg hover:bg-white/10 cursor-pointer"
+              title="Cancel"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Cancel</span>
+            </button>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
           <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600">
             <strong>Candidate Verification:</strong> All submitted entries are reviewed by contest administrators. Approved candidates are assigned an official contestant number and listed on the voting page.
           </div>

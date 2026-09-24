@@ -10,11 +10,13 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { Footer } from './components/Footer';
 import { CandidateShareModal } from './components/CandidateShareModal';
 import { GeneralShareModal } from './components/GeneralShareModal';
+import { InteractionToast, ToastMessage } from './components/InteractionToast';
+import { VotersDecideLogo } from './components/VotersDecideLogo';
 import { Contest, Contestant, VoteSubmissionResult, DeviceStatusResult } from './types';
 import { getOrCreateDeviceToken } from './lib/deviceToken';
 import { supabaseClient } from './lib/supabase';
 import { dataService } from './services/dataService';
-import { AlertCircle, Loader2, CheckCircle2, Shield, Trophy, Users } from 'lucide-react';
+import { Loader2, Shield, Search } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<PortalTab>('public');
@@ -41,7 +43,9 @@ export default function App() {
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
   const [voteError, setVoteError] = useState<string | null>(null);
   const [voteSuccessResult, setVoteSuccessResult] = useState<VoteSubmissionResult | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Toast notification for voting and follow interactions (2s auto-dismiss)
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   // Post-vote popup modal: "Last step: follow this channel for your vote to count"
   const [pendingFollowData, setPendingFollowData] = useState<{
@@ -83,10 +87,14 @@ export default function App() {
     recordPageView();
   }, []);
 
-  // Instruction 3: And once a voter clicks on follow, the follower number should add and say following
+  // Instruction 3: And once a voter clicks on follow, the follower number should add and show smooth 2-second confirmation
   const handleFollow = async () => {
     if (isFollowing) {
-      setToastMessage('You are already following Voters Decide!');
+      setToast({
+        id: Date.now().toString(),
+        type: 'follow',
+        text: '✓ You are already following Voters Decide',
+      });
       return;
     }
 
@@ -95,8 +103,14 @@ export default function App() {
       localStorage.setItem('vd_is_following', 'true');
     } catch {}
 
-    setFollowersCount(prev => prev + 1);
-    setToastMessage('Thank you! You are now following the official contest channel.');
+    setFollowersCount((prev) => prev + 1);
+
+    // Requirement 9: Smooth 2-second auto-disappearing confirmation notification
+    setToast({
+      id: Date.now().toString(),
+      type: 'follow',
+      text: '✓ You are now following Voters Decide',
+    });
 
     try {
       const newCount = await dataService.followChannel(contest?.slug || 'official-contest');
@@ -108,7 +122,7 @@ export default function App() {
     }
   };
 
-  // 1. Fetch Contest & Contestants from server or direct client service (GitHub Pages ready)
+  // 1. Fetch Contest & Contestants
   const fetchContestData = useCallback(async (slug = 'official-contest') => {
     try {
       const data = await dataService.getContest(slug);
@@ -131,15 +145,18 @@ export default function App() {
   }, []);
 
   // 2. Fetch Device Participation Status
-  const fetchDeviceStatus = useCallback(async (slug = 'official-contest') => {
-    if (!deviceToken) return;
-    try {
-      const data = await dataService.getDeviceStatus(slug, deviceToken);
-      setDeviceStatus(data as any);
-    } catch (e) {
-      console.warn('Failed to fetch device participation status', e);
-    }
-  }, [deviceToken]);
+  const fetchDeviceStatus = useCallback(
+    async (slug = 'official-contest') => {
+      if (!deviceToken) return;
+      try {
+        const data = await dataService.getDeviceStatus(slug, deviceToken);
+        setDeviceStatus(data as any);
+      } catch (e) {
+        console.warn('Failed to fetch device participation status', e);
+      }
+    },
+    [deviceToken]
+  );
 
   // Initial load
   useEffect(() => {
@@ -183,7 +200,6 @@ export default function App() {
   }, [fetchContestData]);
 
   // Detect direct contestant link in URL (?contestant=ID or ?c=ID)
-  // Takes the voter directly to that contestant!
   useEffect(() => {
     if (contestants.length === 0) return;
     try {
@@ -201,7 +217,6 @@ export default function App() {
           setActiveTab('public');
           setVoteSuccessResult(null);
 
-          // Smooth scroll straight to that contestant's card
           setTimeout(() => {
             const el = document.getElementById(`contestant-card-${found.id}`);
             if (el) {
@@ -237,7 +252,8 @@ export default function App() {
         return;
       }
 
-      // Vote accepted! Close vote modal and IMMEDIATELY trigger the Follow Channel pop-up!
+      // The voter clicked confirm -> Do not show success toast yet!
+      // Only bring out the Follow Channel interface.
       const currentSelected = selectedContestant;
       setSelectedContestant(null);
       setPendingFollowData({
@@ -245,11 +261,11 @@ export default function App() {
         voteResult: data as any,
       });
 
-      // Once a voter cast their vote the follows numbers should add
+      // Once a voter casts their vote the follows numbers should add
       if (typeof data.followers_count === 'number') {
         setFollowersCount(data.followers_count);
       } else {
-        setFollowersCount(prev => prev + 1);
+        setFollowersCount((prev) => prev + 1);
       }
 
       // Refresh contest and device counts in background
@@ -260,6 +276,21 @@ export default function App() {
     } finally {
       setIsSubmittingVote(false);
     }
+  };
+
+  // Called when the voter returns back to the link after following the channel
+  const handleVoterReturnedFromChannel = () => {
+    if (!pendingFollowData) return;
+    const res = pendingFollowData.voteResult;
+    setPendingFollowData(null);
+    setVoteSuccessResult(res);
+
+    // User requirement: once the voter returns back to the link, tell them you have successfully voted and your record has been saved
+    setToast({
+      id: Date.now().toString(),
+      type: 'vote',
+      text: '✓ You have successfully voted and your record has been saved',
+    });
   };
 
   // Filter contestants based on search term
@@ -275,26 +306,44 @@ export default function App() {
 
   if (isLoading && !contest) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-          <p className="text-sm font-semibold text-slate-700">Loading Voters Decide...</p>
+      <div className="min-h-screen bg-[#0F1216] flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <VotersDecideLogo size="lg" showText={true} />
+          <div className="flex items-center gap-2.5 text-xs text-zinc-400 font-bold uppercase tracking-widest mt-2">
+            <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+            <span>Loading Ballot System...</span>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-50 flex flex-col font-sans antialiased text-slate-900">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-4 right-4 z-50 p-4 rounded-xl bg-slate-900 text-white shadow-lg text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{toastMessage}</span>
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#0F1216] text-white flex flex-col font-sans antialiased relative selection:bg-amber-500/30 selection:text-amber-200">
+      {/* 
+        Requirements 3 & 4: LARGE SUBTLE BACKGROUND TYPOGRAPHY WATERMARK
+        "VOTERS DECIDE" placed in the middle/center of the background with 
+        vertical/elongated presentation, generous spacing, and sophisticated depth.
+      */}
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none flex items-center justify-center"
+      >
+        <div className="watermark-text-vertical text-[10vw] sm:text-[12vw] font-black uppercase tracking-[0.35em] text-white opacity-[0.03] select-none">
+          VOTERS DECIDE
         </div>
-      )}
+      </div>
 
-      {/* Global Header: "Voters Decide" at the top; Home, Leaderboard (leadership), Admin & Share buttons at the bottom of it */}
+      {/* Subtle depth lighting overlay across the canvas */}
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 pointer-events-none z-0 bg-[radial-gradient(circle_at_50%_20%,rgba(245,158,11,0.035),transparent_60%)]"
+      />
+
+      {/* Toast Notification (2s auto-dismiss) */}
+      <InteractionToast toast={toast} onDismiss={() => setToast(null)} />
+
+      {/* Professional Header */}
       <Header
         activeTab={activeTab}
         setActiveTab={(tab) => {
@@ -310,7 +359,7 @@ export default function App() {
       />
 
       {/* Main Content Areas */}
-      <main className="flex-1 w-full max-w-full">
+      <main className="relative z-10 flex-1 w-full max-w-full">
         {activeTab === 'admin' ? (
           <AdminDashboard
             onBackToApp={() => setActiveTab('public')}
@@ -319,9 +368,10 @@ export default function App() {
               fetchDeviceStatus();
             }}
             currentDeviceToken={deviceToken}
+            initialContest={contest}
           />
         ) : voteSuccessResult ? (
-          /* SUCCESS SCREEN AFTER VOTING (Shows Receipt & Social Sharing) */
+          /* SUCCESS SCREEN AFTER VOTING */
           <SuccessScreen
             result={voteSuccessResult}
             whatsappChannelUrl={contest?.whatsapp_channel_url || 'https://whatsapp.com'}
@@ -381,56 +431,62 @@ export default function App() {
             )}
 
             {/* Contestants Grid & Empty State Section */}
-            <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-8 sm:py-12">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 sm:mb-8">
+            <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 sm:mb-8 pb-4 border-b border-white/10">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                    Official Contest Voting
+                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                    Official Ballot Candidates
                   </h2>
-                  <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                    Verified candidate entries. Select a candidate below to cast your vote (Max {contest?.max_submissions_per_device || 2} votes per device).
+                  <p className="text-xs sm:text-sm text-zinc-400 mt-1">
+                    Select a candidate below to review profile and cast your official vote (Max{' '}
+                    {contest?.max_submissions_per_device || 2} submissions per browser/device).
                   </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-extrabold text-zinc-400">
+                  <span className="tabular-nums text-white font-black">{filteredContestants.length}</span>
+                  <span>Candidates Listed</span>
                 </div>
               </div>
 
               {/* Contestants List or Empty State */}
               {contestants.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-slate-200 p-8 sm:p-14 text-center max-w-xl mx-auto shadow-xs my-6">
-                  <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4 border border-emerald-100">
+                <div className="bg-[#151921] rounded-2xl border border-white/10 p-8 sm:p-14 text-center max-w-xl mx-auto shadow-xl my-6">
+                  <div className="w-16 h-16 rounded-2xl bg-[#1D2430] text-amber-400 flex items-center justify-center mx-auto mb-4 border border-white/10">
                     <Shield className="w-8 h-8" />
                   </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">
-                    No Contestants Added Yet
-                  </h3>
-                  <p className="text-sm text-slate-600 leading-relaxed mb-6">
-                    Official contestants will appear here once added and approved by the platform administrator.
+                  <h3 className="text-xl font-bold text-white mb-2">No Candidates Added Yet</h3>
+                  <p className="text-sm text-zinc-400 leading-relaxed mb-6">
+                    Official contestants will appear here once registered and approved by the platform
+                    administrator.
                   </p>
                   <button
                     id="btn-goto-admin-login"
                     onClick={() => setActiveTab('admin')}
-                    className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-xl shadow-xs transition-colors inline-flex items-center gap-2"
+                    className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm rounded-xl shadow-md shadow-amber-500/20 transition-all inline-flex items-center gap-2 cursor-pointer"
                   >
-                    <Shield className="w-4 h-4 text-emerald-400" />
+                    <Shield className="w-4 h-4 text-black" />
                     <span>Admin Login to Add Contestants</span>
                   </button>
                 </div>
               ) : filteredContestants.length === 0 ? (
-                <div className="bg-white rounded-xl border border-slate-200 p-10 sm:p-12 text-center max-w-lg mx-auto">
-                  <p className="text-sm font-semibold text-slate-700 mb-1">
-                    No contestants found matching &quot;{searchTerm}&quot;
+                <div className="bg-[#151921] rounded-xl border border-white/10 p-10 sm:p-12 text-center max-w-lg mx-auto">
+                  <Search className="w-8 h-8 text-zinc-500 mx-auto mb-3" />
+                  <p className="text-sm font-bold text-white mb-1">
+                    No candidates found matching &quot;{searchTerm}&quot;
                   </p>
-                  <p className="text-xs text-slate-500 mb-4">
-                    Try searching with another keyword or clear the search input.
+                  <p className="text-xs text-zinc-400 mb-4">
+                    Try searching with another candidate name, number, or keyword.
                   </p>
                   <button
                     onClick={() => setSearchTerm('')}
-                    className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold hover:bg-slate-800 transition-colors"
+                    className="px-4 py-2 bg-[#1F2733] hover:bg-[#283241] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer border border-white/10"
                   >
                     Clear Search
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
                   {filteredContestants.map((contestant) => (
                     <ContestantCard
                       key={contestant.id}
@@ -468,18 +524,15 @@ export default function App() {
         />
       )}
 
-      {/* STEP 2: POST-VOTE POP-UP ("Last step follow this channel for your vote to count") */}
+      {/* STEP 2: POST-VOTE POP-UP */}
       {pendingFollowData && (
         <FollowChannelModal
           contestant={pendingFollowData.contestant}
           voteResult={pendingFollowData.voteResult}
           whatsappChannelUrl={contest?.whatsapp_channel_url || 'https://whatsapp.com'}
           onFollow={handleFollow}
-          onContinueToReceipt={() => {
-            const res = pendingFollowData.voteResult;
-            setPendingFollowData(null);
-            setVoteSuccessResult(res);
-          }}
+          onVoterReturned={handleVoterReturnedFromChannel}
+          onClose={handleVoterReturnedFromChannel}
         />
       )}
 
@@ -491,12 +544,9 @@ export default function App() {
         />
       )}
 
-      {/* STEP 4: GENERAL PLATFORM SHILLING / SHARE MODAL */}
+      {/* STEP 4: GENERAL PLATFORM SHARE MODAL */}
       {showGeneralShareModal && (
-        <GeneralShareModal
-          contest={contest}
-          onClose={() => setShowGeneralShareModal(false)}
-        />
+        <GeneralShareModal contest={contest} onClose={() => setShowGeneralShareModal(false)} />
       )}
 
       {/* Global Footer */}

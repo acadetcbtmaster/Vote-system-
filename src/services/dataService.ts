@@ -203,10 +203,18 @@ export const dataService = {
   }> {
     // Attempt Server API
     try {
+      const serverPayload = {
+        contestantId: payload.contestantId,
+        deviceToken: payload.deviceToken,
+        fullName: payload.voterName,
+        voterName: payload.voterName,
+        whatsappNumber: payload.voterWhatsapp,
+        voterWhatsapp: payload.voterWhatsapp,
+      };
       const res = await fetch(`/api/contests/${slug}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(serverPayload),
       });
       if (res.ok || res.status === 400 || res.status === 404) {
         return await res.json();

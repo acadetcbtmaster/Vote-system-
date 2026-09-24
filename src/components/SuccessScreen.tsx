@@ -6,9 +6,11 @@ import {
   X,
   MessageCircle,
   Check,
+  ShieldCheck,
 } from 'lucide-react';
 import { VoteSubmissionResult } from '../types';
 import { SocialShareCard } from './SocialShareCard';
+import { VotersDecideLogo } from './VotersDecideLogo';
 
 interface SuccessScreenProps {
   result: VoteSubmissionResult;
@@ -36,18 +38,18 @@ export const SuccessScreen: React.FC<SuccessScreenProps> = ({
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 py-8 sm:py-14">
-      {/* Top Navigation: Back button & Side Cancel button */}
+    <div className="w-full max-w-2xl mx-auto px-4 py-8 sm:py-12 text-white animate-in fade-in duration-200">
+      {/* Top Navigation */}
       <div className="flex items-center justify-between gap-3 mb-4">
         {onBackToVoting && (
           <button
             id="success-back-to-vote-btn"
             type="button"
             onClick={onBackToVoting}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-semibold shadow-2xs transition-colors"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#171C24] hover:bg-[#1E2532] border border-white/10 text-zinc-200 hover:text-white text-xs sm:text-sm font-bold shadow-sm transition-colors cursor-pointer"
           >
-            <ArrowLeft className="w-4 h-4 text-slate-500" />
-            <span>Back to Contest Voting</span>
+            <ArrowLeft className="w-4 h-4 text-amber-400" />
+            <span>Back to Ballots</span>
           </button>
         )}
 
@@ -56,88 +58,94 @@ export const SuccessScreen: React.FC<SuccessScreenProps> = ({
             id="success-cancel-btn"
             type="button"
             onClick={onBackToVoting}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 text-xs font-semibold transition-colors ml-auto"
-            title="Return to front page"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#171C24] hover:bg-[#1E2532] border border-white/10 text-zinc-300 hover:text-white text-xs font-bold transition-colors ml-auto cursor-pointer"
+            title="Cancel and return to ballots"
           >
-            <X className="w-4 h-4" />
-            <span className="hidden sm:inline">Close</span>
+            <X className="w-4 h-4 text-zinc-400" />
+            <span>Cancel</span>
           </button>
         )}
       </div>
 
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-10 text-center">
-        {/* Verified Badge - Solid Green Circle with Checkmark matching Screen 4 */}
-        <div className="w-16 h-16 rounded-full bg-emerald-600 text-white mx-auto flex items-center justify-center mb-5 shadow-md">
+      <div className="bg-[#151921] rounded-2xl border border-white/10 shadow-2xl p-6 sm:p-10 text-center">
+        {/* Verified Badge */}
+        <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 mx-auto flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/10">
           <Check className="w-8 h-8 stroke-[3.5]" />
         </div>
 
-        {/* Primary Success Message matching Screen 4 */}
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-950 tracking-tight mb-2">
-          Your choice has been recorded!
+        {/* Primary Confirmation Headline */}
+        <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 inline-block mb-3">
+          ✓ Vote Confirmed &amp; Sealed
+        </span>
+
+        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-2">
+          You Have Successfully Voted and Your Record Has Been Saved
         </h1>
-        <p className="text-sm sm:text-base text-slate-500 mb-6">
-          Thank you for participating in Voters Decide.
+        <p className="text-xs sm:text-sm text-zinc-300 mb-6 max-w-lg mx-auto leading-relaxed">
+          Your channel follow has been verified and your official vote is safely counted and logged in the election registry.
         </p>
 
         {/* Recorded Vote Summary Card */}
         {contestant && (
-          <div className="max-w-md mx-auto mb-6 p-4 rounded-2xl bg-slate-50 border border-slate-200 text-left">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-              Verified Submission
+          <div className="max-w-md mx-auto mb-6 p-4 rounded-xl bg-[#1A202A] border border-white/10 text-left shadow-inner">
+            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 block mb-1.5">
+              Verified Ballot Selection
             </span>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-base font-extrabold text-slate-900">
+                <p className="text-base font-extrabold text-white">
                   {contestant.name}
                 </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Candidate #{contestant.contestant_number} • <strong className="text-slate-800 tabular-nums">{contestant.vote_count.toLocaleString()}</strong> votes
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Candidate #{contestant.contestant_number} • <strong className="text-amber-400 tabular-nums">{contestant.vote_count.toLocaleString()}</strong> votes
                 </p>
               </div>
-              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-                Recorded
+              <span className="px-3 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase tracking-wider">
+                Confirmed
               </span>
             </div>
           </div>
         )}
 
-        {/* ONE MORE STEP: WhatsApp Channel Card matching Screen 4 */}
-        <div className="max-w-md mx-auto p-6 rounded-2xl bg-white border border-slate-200 shadow-xs text-center mb-6">
-          <div className="w-12 h-12 rounded-full bg-[#25D366]/15 text-[#25D366] flex items-center justify-center mx-auto mb-3">
-            <MessageCircle className="w-7 h-7 fill-[#25D366] text-[#25D366]" />
+        {/* WhatsApp Channel Follow Card */}
+        <div className="max-w-md mx-auto p-5 sm:p-6 rounded-xl bg-[#181E27] border border-white/10 shadow-md text-center mb-6">
+          <div className="w-10 h-10 rounded-full bg-[#25D366]/20 text-[#25D366] flex items-center justify-center mx-auto mb-2">
+            <MessageCircle className="w-5 h-5 fill-[#25D366]" />
           </div>
 
-          <h2 className="text-base font-extrabold text-slate-950 mb-1">
-            One more step
+          <h2 className="text-sm sm:text-base font-extrabold text-white mb-1">
+            Follow Official Channel
           </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mb-5 leading-relaxed">
-            Follow the official Voters Decide WhatsApp Channel to stay updated.
+          <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+            Follow the official Voters Decide channel to authenticate your submission and track election results.
           </p>
 
           <button
             id="follow-whatsapp-channel-btn"
             type="button"
             onClick={handleFollowChannel}
-            className="w-full py-3 px-6 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] active:scale-[0.99] text-white font-bold text-sm shadow-sm transition-all flex items-center justify-center gap-2"
+            className="w-full py-3 px-6 rounded-xl bg-[#25D366] hover:bg-[#20BD5A] active:scale-[0.99] text-black font-black text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <MessageCircle className="w-4 h-4 fill-white" />
+            <MessageCircle className="w-4 h-4 fill-black" />
             <span>Follow WhatsApp Channel</span>
           </button>
         </div>
 
         {/* Device Quota Status */}
-        <div className="max-w-md mx-auto mb-6 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
+        <div className="max-w-md mx-auto mb-6 p-3.5 rounded-xl bg-[#181E27] border border-white/10 text-xs text-zinc-300 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Smartphone className="w-4 h-4 text-slate-500" />
-            <span>Device Voting Quota:</span>
+            <Smartphone className="w-4 h-4 text-zinc-400" />
+            <span className="font-medium">Device Voting Quota:</span>
           </div>
-          <span className="font-bold text-slate-900">
+          <span className="font-extrabold text-white tabular-nums">
             {used} of 2 used {remaining > 0 ? `(${remaining} remaining)` : '(Maximum limit reached)'}
           </span>
         </div>
 
         {/* SOCIAL MEDIA SHARING COMPONENT */}
-        <SocialShareCard contestant={contestant} />
+        <div className="mb-6">
+          <SocialShareCard contestant={contestant} />
+        </div>
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -145,9 +153,9 @@ export const SuccessScreen: React.FC<SuccessScreenProps> = ({
             id="success-view-leaderboard-btn"
             type="button"
             onClick={onViewLeaderboard}
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-800 font-bold text-sm transition-colors flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-5 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-zinc-200 hover:text-white font-bold text-xs sm:text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
-            <Trophy className="w-4 h-4 text-amber-500" />
+            <Trophy className="w-4 h-4 text-amber-400" />
             <span>View Live Leaderboard</span>
           </button>
 
@@ -156,7 +164,7 @@ export const SuccessScreen: React.FC<SuccessScreenProps> = ({
               id="success-vote-again-btn"
               type="button"
               onClick={onVoteAgain}
-              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#0B132B] hover:bg-slate-950 text-white font-bold text-sm transition-colors"
+              className="w-full sm:w-auto px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs sm:text-sm transition-colors cursor-pointer shadow-md shadow-amber-500/20"
             >
               Cast Your 2nd Vote
             </button>
@@ -167,9 +175,22 @@ export const SuccessScreen: React.FC<SuccessScreenProps> = ({
               id="success-return-front-page-btn"
               type="button"
               onClick={onBackToVoting}
-              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition-colors"
+              className="w-full sm:w-auto px-5 py-3 rounded-xl bg-[#1F2733] hover:bg-[#283241] text-zinc-200 hover:text-white font-bold text-xs sm:text-sm transition-colors cursor-pointer flex items-center justify-center gap-2"
             >
-              Back to Contest Front Page
+              <ArrowLeft className="w-4 h-4 text-zinc-400" />
+              <span>Back to Ballot Portal</span>
+            </button>
+          )}
+
+          {onBackToVoting && (
+            <button
+              id="success-cancel-bottom-btn"
+              type="button"
+              onClick={onBackToVoting}
+              className="w-full sm:w-auto px-5 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-zinc-400 hover:text-white font-bold text-xs sm:text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+              <span>Cancel</span>
             </button>
           )}
         </div>

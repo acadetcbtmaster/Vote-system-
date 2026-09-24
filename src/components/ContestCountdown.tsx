@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Timer, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Timer, Clock } from 'lucide-react';
 
 interface ContestCountdownProps {
   endTime: string | null;
@@ -24,7 +24,6 @@ function calculateTimeRemaining(endTimeStr: string | null, status?: string): Tim
   }
 
   if (!endTimeStr) {
-    // Default fallback to 7 days from now if no end time configured
     return { total: 0, days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: false };
   }
 
@@ -63,10 +62,7 @@ export const ContestCountdown: React.FC<ContestCountdownProps> = ({
   );
 
   useEffect(() => {
-    // Update immediately on prop change
     setTimeLeft(calculateTimeRemaining(endTime, status));
-
-    // Tick every 1 second
     const interval = setInterval(() => {
       setTimeLeft(calculateTimeRemaining(endTime, status));
     }, 1000);
@@ -76,13 +72,13 @@ export const ContestCountdown: React.FC<ContestCountdownProps> = ({
 
   const padZero = (n: number): string => n.toString().padStart(2, '0');
 
-  // Compact Mode (used in secondary toolbars or sticky headers)
+  // Compact Mode
   if (compact) {
     if (timeLeft.isExpired || status === 'closed') {
       return (
         <div
           id="contest-countdown-compact-closed"
-          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-amber-300 text-xs font-semibold border border-slate-700 ${className}`}
+          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#1A202A] text-amber-300 text-xs font-semibold border border-white/10 ${className}`}
         >
           <Clock className="w-3.5 h-3.5 text-amber-400" />
           <span>Voting Closed</span>
@@ -93,11 +89,11 @@ export const ContestCountdown: React.FC<ContestCountdownProps> = ({
     return (
       <div
         id="contest-countdown-compact"
-        className={`inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/90 text-slate-200 text-xs font-mono font-bold border border-slate-700 shadow-2xs ${className}`}
+        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#1A202A] text-zinc-200 text-xs font-mono font-bold border border-white/10 shadow-sm ${className}`}
       >
-        <Timer className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-        <span className="text-[11px] font-sans text-slate-400 font-semibold">Ends In:</span>
-        <span className="tabular-nums text-emerald-300">
+        <Timer className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+        <span className="text-[11px] font-sans text-zinc-400 font-semibold">Ends In:</span>
+        <span className="tabular-nums text-amber-300">
           {timeLeft.days > 0 ? `${timeLeft.days}d ` : ''}
           {padZero(timeLeft.hours)}:{padZero(timeLeft.minutes)}:{padZero(timeLeft.seconds)}
         </span>
@@ -110,20 +106,20 @@ export const ContestCountdown: React.FC<ContestCountdownProps> = ({
     return (
       <div
         id="contest-countdown-card-closed"
-        className={`w-full rounded-2xl bg-slate-800/90 border border-slate-700/80 p-4 sm:p-5 text-white ${className}`}
+        className={`w-full rounded-xl bg-[#151921] border border-white/10 p-4 sm:p-5 text-white ${className}`}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+            <div className="w-9 h-9 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
               <Clock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white">Contest Voting Closed</h3>
-              <p className="text-xs text-slate-400">Official voting period has ended. Final results are locked.</p>
+              <h3 className="text-sm font-bold text-white">Voting Concluded</h3>
+              <p className="text-xs text-zinc-400">Official deadline has passed. Final audited ballots are locked.</p>
             </div>
           </div>
-          <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold shrink-0">
-            Concluded
+          <span className="px-3 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold shrink-0">
+            Closed
           </span>
         </div>
       </div>
@@ -133,70 +129,68 @@ export const ContestCountdown: React.FC<ContestCountdownProps> = ({
   return (
     <div
       id="contest-countdown-card"
-      className={`w-full rounded-2xl bg-gradient-to-br from-slate-800/95 via-slate-800/80 to-slate-900/95 border border-slate-700/80 p-4 sm:p-5 shadow-sm text-white ${className}`}
+      className={`w-full rounded-xl bg-[#151921] border border-white/10 p-4 sm:p-5 shadow-lg text-white ${className}`}
     >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3.5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-            <Timer className="w-4 h-4 text-emerald-400 animate-pulse" />
+          <div className="w-7 h-7 rounded-md bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+            <Timer className="w-4 h-4 text-amber-400 animate-pulse" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs sm:text-sm font-bold text-white tracking-tight">
-                {title}
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold uppercase tracking-wider">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                Live Timer
-              </span>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs sm:text-sm font-bold text-white tracking-tight">
+              {title}
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Live Timer
+            </span>
           </div>
         </div>
 
-        <span className="text-[11px] text-slate-400">
-          Voting closes automatically when the timer reaches zero
+        <span className="text-[11px] text-zinc-400">
+          Closes automatically when countdown reaches zero
         </span>
       </div>
 
-      {/* 4 Counter Blocks: Days, Hours, Minutes, Seconds */}
+      {/* 4 Counter Blocks */}
       <div className="grid grid-cols-4 gap-2 sm:gap-3">
         {/* Days */}
-        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-xl bg-slate-900/80 border border-slate-700/70 shadow-inner">
+        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-lg bg-[#0C0F14] border border-white/10 shadow-inner">
           <span className="text-xl sm:text-2xl md:text-3xl font-black font-mono tracking-tight text-white tabular-nums">
             {padZero(timeLeft.days)}
           </span>
-          <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+          <span className="text-[9px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-wider mt-0.5">
             Days
           </span>
         </div>
 
         {/* Hours */}
-        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-xl bg-slate-900/80 border border-slate-700/70 shadow-inner">
+        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-lg bg-[#0C0F14] border border-white/10 shadow-inner">
           <span className="text-xl sm:text-2xl md:text-3xl font-black font-mono tracking-tight text-white tabular-nums">
             {padZero(timeLeft.hours)}
           </span>
-          <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+          <span className="text-[9px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-wider mt-0.5">
             Hours
           </span>
         </div>
 
         {/* Minutes */}
-        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-xl bg-slate-900/80 border border-slate-700/70 shadow-inner">
+        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-lg bg-[#0C0F14] border border-white/10 shadow-inner">
           <span className="text-xl sm:text-2xl md:text-3xl font-black font-mono tracking-tight text-white tabular-nums">
             {padZero(timeLeft.minutes)}
           </span>
-          <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">
+          <span className="text-[9px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-wider mt-0.5">
             Mins
           </span>
         </div>
 
         {/* Seconds */}
-        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-xl bg-slate-900/80 border border-emerald-500/40 shadow-inner relative overflow-hidden">
-          <div className="absolute top-0 inset-x-0 h-0.5 bg-emerald-500/80" />
-          <span className="text-xl sm:text-2xl md:text-3xl font-black font-mono tracking-tight text-emerald-400 tabular-nums">
+        <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 rounded-lg bg-[#0C0F14] border border-amber-500/40 shadow-inner relative overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-0.5 bg-amber-400" />
+          <span className="text-xl sm:text-2xl md:text-3xl font-black font-mono tracking-tight text-amber-400 tabular-nums">
             {padZero(timeLeft.seconds)}
           </span>
-          <span className="text-[9px] sm:text-[10px] font-bold text-emerald-400/80 uppercase tracking-wider mt-0.5">
+          <span className="text-[9px] sm:text-[10px] font-bold text-amber-400/80 uppercase tracking-wider mt-0.5">
             Secs
           </span>
         </div>
