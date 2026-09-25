@@ -11,6 +11,7 @@ import {
 import { VoteSubmissionResult } from '../types';
 import { SocialShareCard } from './SocialShareCard';
 import { VotersDecideLogo } from './VotersDecideLogo';
+import { safeOpenUrl } from '../lib/safeOpen';
 
 interface SuccessScreenProps {
   result: VoteSubmissionResult;
@@ -33,7 +34,7 @@ export const SuccessScreen: React.FC<SuccessScreenProps> = ({
 
   const handleFollowChannel = () => {
     if (whatsappChannelUrl) {
-      window.open(whatsappChannelUrl, '_blank', 'noopener,noreferrer');
+      safeOpenUrl(whatsappChannelUrl, '_blank');
     }
   };
 

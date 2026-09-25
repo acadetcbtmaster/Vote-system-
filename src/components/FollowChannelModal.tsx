@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Contestant, VoteSubmissionResult } from '../types';
 import { ExternalLink, Check, ShieldAlert, ArrowLeft, X, Loader2, ArrowRight } from 'lucide-react';
 import { VotersDecideLogo } from './VotersDecideLogo';
+import { safeOpenUrl } from '../lib/safeOpen';
 
 interface FollowChannelModalProps {
   contestant: Contestant;
@@ -44,7 +45,7 @@ export const FollowChannelModal: React.FC<FollowChannelModalProps> = ({
     if (onFollow) {
       onFollow();
     }
-    window.open(channelUrl, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(channelUrl, '_blank');
   };
 
   // Listen for the voter returning back to this link/page after following the channel

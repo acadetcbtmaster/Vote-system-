@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Contest } from '../types';
 import { X, Check, Copy, Share2, Sparkles, MessageCircle, Twitter, Facebook, Send, ArrowLeft } from 'lucide-react';
 import { VotersDecideLogo } from './VotersDecideLogo';
+import { safeOpenUrl } from '../lib/safeOpen';
 
 interface GeneralShareModalProps {
   contest: Contest | null;
@@ -20,7 +21,16 @@ export const GeneralShareModal: React.FC<GeneralShareModalProps> = ({
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(contestUrl);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(contestUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = contestUrl;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
     } catch {
@@ -31,22 +41,22 @@ export const GeneralShareModal: React.FC<GeneralShareModalProps> = ({
 
   const handleWhatsAppShare = () => {
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(`${shareText} ${contestUrl}`)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleTwitterShare = () => {
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(contestUrl)}&hashtags=VotersDecide,VoteNow,PublicElection`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleFacebookShare = () => {
     const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(contestUrl)}&quote=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleTelegramShare = () => {
     const url = `https://t.me/share/url?url=${encodeURIComponent(contestUrl)}&text=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   return (

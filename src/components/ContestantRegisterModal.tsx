@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { X, ArrowLeft, UserPlus, CheckCircle, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { X, ArrowLeft, UserPlus, CheckCircle, AlertCircle, Loader2, Sparkles, Camera, Trash2 } from 'lucide-react';
 import { dataService } from '../services/dataService';
+import { compressImageFile } from '../lib/imageCompress';
+import { VotersDecideLogo } from './VotersDecideLogo';
 
 interface ContestantRegisterModalProps {
   contestSlug: string;
@@ -58,12 +60,14 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
     e.preventDefault();
     setError(null);
 
-    if (!name.trim() || name.trim().length < 2) {
-      setError('Candidate full name is required.');
+    const trimmedName = name.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      setError('Candidate full legal name is required.');
       return;
     }
 
-    if (!whatsappNumber.trim()) {
+    const trimmedPhone = whatsappNumber.trim();
+    if (!trimmedPhone) {
       setError('A valid WhatsApp contact number is required for contestant verification.');
       return;
     }
@@ -71,8 +75,8 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
     setIsSubmitting(true);
     try {
       const data = await dataService.registerContestant(contestSlug, {
-        name: name.trim(),
-        whatsappNumber: whatsappNumber.trim(),
+        name: trimmedName,
+        whatsappNumber: trimmedPhone,
         bio: bio.trim(),
         photoUrl: photoUrl.trim() || undefined,
       });
@@ -81,7 +85,7 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
         throw new Error(data.message || 'Registration failed.');
       }
 
-      onSuccess(data.message || 'Application submitted successfully.');
+      onSuccess(data.message || `Application for ${trimmedName} submitted and approved!`);
       onClose();
     } catch (err: any) {
       setError(err.message || 'An error occurred during submission.');
@@ -91,22 +95,25 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 bg-slate-950/80 backdrop-blur-md overflow-hidden animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md overflow-hidden animate-in fade-in duration-200">
       <div 
         id="contestant-register-modal"
-        className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200 flex flex-col max-h-[calc(100dvh-1.25rem)] sm:max-h-[calc(100dvh-2.5rem)] my-auto overflow-hidden"
+        className="relative w-full max-w-lg bg-[#141820] text-white rounded-2xl shadow-2xl border border-white/10 flex flex-col max-h-[calc(100dvh-1.25rem)] sm:max-h-[calc(100dvh-2.5rem)] my-auto overflow-hidden"
       >
-        <div className="shrink-0 px-4 py-3 sm:px-6 sm:py-3.5 bg-slate-900 text-white flex items-center justify-between">
+        <div className="shrink-0 px-4 py-3 sm:px-6 sm:py-3.5 bg-[#11141A] text-white flex items-center justify-between border-b border-white/10">
           <div className="flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-sm sm:text-base font-bold">Apply as Contestant</h2>
+            <VotersDecideLogo size="sm" showText={false} />
+            <div className="flex items-center gap-1.5">
+              <UserPlus className="w-4 h-4 text-emerald-400" />
+              <h2 className="text-sm sm:text-base font-bold text-white">Apply as Official Contestant</h2>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="inline-flex items-center gap-1 text-xs font-bold text-slate-300 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 cursor-pointer"
+              className="inline-flex items-center gap-1 text-xs font-bold text-zinc-300 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer"
               title="Return to contest"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -116,7 +123,7 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg hover:bg-white/10 cursor-pointer"
+              className="inline-flex items-center gap-1 text-xs font-bold text-zinc-400 hover:text-white transition-colors py-1.5 px-2.5 sm:px-3 rounded-lg hover:bg-white/10 border border-transparent hover:border-white/10 cursor-pointer"
               title="Cancel"
             >
               <X className="w-3.5 h-3.5" />
@@ -126,13 +133,13 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
-          <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600">
-            <strong>Candidate Verification:</strong> All submitted entries are reviewed by contest administrators. Approved candidates are assigned an official contestant number and listed on the voting page.
+          <div className="p-3.5 rounded-xl bg-[#181E27] border border-white/10 text-xs text-zinc-300 leading-relaxed">
+            <strong className="text-white">Candidate Protocol:</strong> Register your official ballot profile. Approved candidates are assigned a contestant sequence number and immediately displayed on the public voting page.
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Full Legal Name <span className="text-red-500">*</span>
+            <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+              Full Legal Name <span className="text-amber-400">*</span>
             </label>
             <input
               type="text"
@@ -141,13 +148,13 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
               placeholder="e.g. Samuel Adekunle"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-3.5 py-2.5 bg-[#0C0F14] border border-white/15 focus:border-[#1D7BF2] rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-[#1D7BF2]"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              WhatsApp Contact <span className="text-red-500">*</span>
+            <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+              WhatsApp Contact <span className="text-amber-400">*</span>
             </label>
             <input
               type="tel"
@@ -156,21 +163,21 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
               placeholder="e.g. 08012345678 or +234..."
               value={whatsappNumber}
               onChange={(e) => setWhatsappNumber(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-3.5 py-2.5 bg-[#0C0F14] border border-white/15 focus:border-[#1D7BF2] rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-[#1D7BF2]"
             />
-            <span className="text-[11px] text-slate-500">Kept private; only used by contest admins for communication.</span>
+            <span className="text-[11px] text-zinc-400 mt-1 block">Kept private; only used by contest administrators for official contact.</span>
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">
                 Short Bio / Platform Initiative
               </label>
               <button
                 type="button"
                 onClick={handleGenerateAiBio}
                 disabled={isSubmitting || isGeneratingBio}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 rounded-full transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#1D7BF2] hover:text-blue-300 bg-[#1D7BF2]/10 hover:bg-[#1D7BF2]/20 border border-[#1D7BF2]/30 px-2.5 py-1 rounded-full transition-colors cursor-pointer disabled:opacity-50"
               >
                 {isGeneratingBio ? (
                   <>
@@ -179,7 +186,7 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-3 h-3 text-emerald-600" />
+                    <Sparkles className="w-3 h-3" />
                     <span>AI Compose Bio</span>
                   </>
                 )}
@@ -188,58 +195,109 @@ export const ContestantRegisterModal: React.FC<ContestantRegisterModalProps> = (
             <textarea
               rows={3}
               disabled={isSubmitting}
-              placeholder="Briefly describe your project, community initiative, or talent (or click AI Compose Bio)..."
+              placeholder="Briefly describe your background, talent, or community initiative (or tap AI Compose Bio)..."
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-3.5 py-2.5 bg-[#0C0F14] border border-white/15 focus:border-[#1D7BF2] rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-[#1D7BF2]"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-              Photo URL (Optional)
+            <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+              Candidate Photo (Optional)
             </label>
-            <input
-              type="url"
-              disabled={isSubmitting}
-              placeholder="https://..."
-              value={photoUrl}
-              onChange={(e) => setPhotoUrl(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <span className="text-[11px] text-slate-500">Provide a direct portrait image link, or leave blank to use default avatar.</span>
+            <div className="space-y-3">
+              {photoUrl ? (
+                <div className="flex items-center gap-3 p-3 bg-[#0C0F14] border border-white/15 rounded-xl">
+                  <img
+                    src={photoUrl}
+                    alt="Candidate preview"
+                    className="w-14 h-14 rounded-xl object-cover border border-white/10 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-white truncate">Photo selected</p>
+                    <p className="text-[11px] text-emerald-400 font-medium">Ready for ballot card</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPhotoUrl('')}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold text-red-400 hover:bg-red-500/10 border border-red-500/30 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="cursor-pointer flex flex-col items-center justify-center p-5 border-2 border-dashed border-white/20 hover:border-[#1D7BF2] hover:bg-[#1D7BF2]/5 rounded-xl transition-all group">
+                  <Camera className="w-6 h-6 text-[#1D7BF2] mb-1 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-bold text-white">Choose Photo from Gallery / Camera</span>
+                  <span className="text-[11px] text-zinc-400 mt-0.5">Select image file from your device</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={isSubmitting}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        try {
+                          const compressed = await compressImageFile(file);
+                          setPhotoUrl(compressed);
+                        } catch (err) {
+                          setError('Failed to process image file');
+                        }
+                      }
+                    }}
+                  />
+                </label>
+              )}
+
+              <details className="text-[11px] text-zinc-400">
+                <summary className="cursor-pointer hover:text-white font-medium">
+                  Or enter photo web URL manually
+                </summary>
+                <input
+                  type="url"
+                  disabled={isSubmitting}
+                  placeholder="https://example.com/photo.jpg"
+                  value={photoUrl.startsWith('data:') ? '' : photoUrl}
+                  onChange={(e) => setPhotoUrl(e.target.value)}
+                  className="mt-1.5 w-full px-3 py-2 bg-[#0C0F14] border border-white/15 focus:border-[#1D7BF2] rounded-xl text-xs text-white outline-none"
+                />
+              </details>
+            </div>
           </div>
 
           {error && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <div className="pt-2 flex items-center justify-end gap-3">
+          <div className="pt-2 flex items-center justify-end gap-2.5">
             <button
               type="button"
               disabled={isSubmitting}
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50"
+              className="px-4 py-2.5 rounded-xl border border-white/15 text-zinc-300 hover:text-white hover:bg-white/5 text-xs font-bold cursor-pointer transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-xs flex items-center gap-2"
+              className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold shadow-md flex items-center gap-2 cursor-pointer transition-all disabled:opacity-60"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Submitting...</span>
+                  <span>Submitting Application...</span>
                 </>
               ) : (
                 <>
                   <CheckCircle className="w-4 h-4" />
-                  <span>Submit Application</span>
+                  <span>Submit Candidate Application</span>
                 </>
               )}
             </button>

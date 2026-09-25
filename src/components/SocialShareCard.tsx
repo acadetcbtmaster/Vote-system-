@@ -8,6 +8,7 @@ import {
   Check, 
   Send
 } from 'lucide-react';
+import { safeOpenUrl } from '../lib/safeOpen';
 
 interface SocialShareCardProps {
   contestant?: {
@@ -36,17 +37,17 @@ export const SocialShareCard: React.FC<SocialShareCardProps> = ({
   const handleShareWhatsApp = () => {
     const fullMsg = `${shareText}\n${shareUrl}`;
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(fullMsg)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleShareTwitter = () => {
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleShareFacebook = () => {
     const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}&quote=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleCopyLink = async () => {

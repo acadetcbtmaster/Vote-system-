@@ -102,11 +102,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // New Contestant Form
   const [isAddingContestant, setIsAddingContestant] = useState(false);
+  const [isSavingContestant, setIsSavingContestant] = useState(false);
   const [newNumber, setNewNumber] = useState('');
   const [newName, setNewName] = useState('');
   const [newWhatsapp, setNewWhatsapp] = useState('');
   const [newBio, setNewBio] = useState('');
   const [newPhoto, setNewPhoto] = useState('');
+
+  const handleToggleAddContestant = () => {
+    if (!isAddingContestant) {
+      // Auto-compute next number if blank
+      const existing = stats?.contestants || [];
+      const numbers = existing.map((c: any) => parseInt(c.contestant_number, 10)).filter((n: number) => !isNaN(n));
+      const nextNum = (numbers.length > 0 ? Math.max(...numbers) + 1 : 1).toString().padStart(2, '0');
+      setNewNumber(nextNum);
+    }
+    setIsAddingContestant(!isAddingContestant);
+  };
 
   // Edit Existing Contestant Form
   const [editingContestant, setEditingContestant] = useState<Contestant | null>(null);
@@ -404,7 +416,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleAddContestant = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || !newNumber.trim() || !stats?.contest?.id) return;
+    setActionError(null);
+    setActionSuccess(null);
+
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+      setActionError('Candidate full legal name is required.');
+      return;
+    }
+
+    // Auto-calculate next number if user didn't enter one
+    let targetNum = newNumber.trim();
+    if (!targetNum) {
+      const existing = stats?.contestants || [];
+      const numbers = existing.map((c: any) => parseInt(c.contestant_number, 10)).filter((n: number) => !isNaN(n));
+      targetNum = (numbers.length > 0 ? Math.max(...numbers) + 1 : 1).toString().padStart(2, '0');
+    } else {
+      targetNum = targetNum.padStart(2, '0');
+    }
+
+    const contestId = stats?.contest?.id || initialContest?.id || 'official-contest';
+    setIsSavingContestant(true);
 
     try {
       const res = await fetch('/api/admin/contestants', {
@@ -414,9 +446,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           'x-admin-token': secretKey,
         },
         body: JSON.stringify({
-          contest_id: stats.contest.id,
-          contestant_number: newNumber.trim(),
-          name: newName.trim(),
+          contest_id: contestId,
+          contestant_number: targetNum,
+          name: trimmedName,
           bio: newBio.trim(),
           photo_url: newPhoto.trim() || null,
           whatsapp_number: newWhatsapp.trim() || undefined,
@@ -425,26 +457,76 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       });
 
       if (res.ok) {
-        setActionSuccess('Contestant created and approved.');
+        setActionSuccess(`Contestant #${targetNum} (${trimmedName}) successfully added and approved!`);
         setIsAddingContestant(false);
         setNewName('');
         setNewNumber('');
         setNewWhatsapp('');
         setNewBio('');
         setNewPhoto('');
-        loadAdminStats();
+        await loadAdminStats();
         onRefreshPublicData();
       } else {
-        const err = await res.json();
-        setActionError(err.error || 'Failed to create contestant.');
+        const err = await res.json().catch(() => ({}));
+        // Offline / fallback execution
+        const fallbackRes = await dataService.registerContestant(stats?.contest?.slug || 'official-contest', {
+          name: trimmedName,
+          whatsappNumber: newWhatsapp.trim() || '08000000000',
+          bio: newBio.trim(),
+          photoUrl: newPhoto.trim() || undefined,
+          contestantNumber: targetNum,
+        });
+
+        if (fallbackRes.success) {
+          setActionSuccess(`Contestant #${targetNum} (${trimmedName}) saved successfully.`);
+          setIsAddingContestant(false);
+          setNewName('');
+          setNewNumber('');
+          setNewWhatsapp('');
+          setNewBio('');
+          setNewPhoto('');
+          await loadAdminStats();
+          onRefreshPublicData();
+        } else {
+          setActionError(err.error || fallbackRes.message || 'Failed to create contestant.');
+        }
       }
     } catch (e: any) {
-      setActionError(e.message);
+      try {
+        const fallbackRes = await dataService.registerContestant(stats?.contest?.slug || 'official-contest', {
+          name: trimmedName,
+          whatsappNumber: newWhatsapp.trim() || '08000000000',
+          bio: newBio.trim(),
+          photoUrl: newPhoto.trim() || undefined,
+          contestantNumber: targetNum,
+        });
+        if (fallbackRes.success) {
+          setActionSuccess(`Contestant #${targetNum} (${trimmedName}) saved successfully.`);
+          setIsAddingContestant(false);
+          setNewName('');
+          setNewNumber('');
+          setNewWhatsapp('');
+          setNewBio('');
+          setNewPhoto('');
+          await loadAdminStats();
+          onRefreshPublicData();
+          return;
+        }
+      } catch {}
+      setActionError(e.message || 'Error occurred while saving contestant.');
+    } finally {
+      setIsSavingContestant(false);
     }
   };
 
   const handleDeleteContestant = async (contestantId: string, contestantName: string) => {
-    if (!window.confirm(`Are you sure you want to delete contestant "${contestantName}"? This action is permanent.`)) {
+    let confirmed = true;
+    try {
+      confirmed = window.confirm(`Are you sure you want to delete contestant "${contestantName}"? This action is permanent.`);
+    } catch {
+      confirmed = true;
+    }
+    if (!confirmed) {
       return;
     }
     setActionSuccess(null);
@@ -461,11 +543,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         loadAdminStats();
         onRefreshPublicData();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         setActionError(err.error || 'Failed to delete contestant.');
       }
     } catch (err: any) {
-      setActionError(err.message);
+      setActionError(err.message || 'Failed to delete contestant.');
     }
   };
 
@@ -1136,7 +1218,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
               </p>
             </div>
             <button
-              onClick={() => setIsAddingContestant(!isAddingContestant)}
+              onClick={handleToggleAddContestant}
               className="px-4 py-2 rounded-xl bg-[#1D7BF2] hover:bg-[#1565C0] text-white text-xs font-extrabold flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
@@ -1153,22 +1235,26 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
               </div>
               <form onSubmit={handleAddContestant} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Contestant Number (e.g. 05)</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">Contestant Number</label>
+                    <span className="text-[10px] text-zinc-400 font-normal">Auto-assigned if empty</span>
+                  </div>
                   <input
                     type="text"
-                    required
-                    placeholder="e.g. 09"
+                    placeholder="e.g. 01, 02 (optional)"
                     value={newNumber}
                     onChange={(e) => setNewNumber(e.target.value)}
                     className="w-full px-4 py-2.5 bg-[#0C0F14] border border-white/15 focus:border-[#1D7BF2] text-white placeholder-zinc-500 rounded-xl text-sm outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2">Full Name</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider">Full Name <span className="text-amber-400">*</span></label>
+                  </div>
                   <input
                     type="text"
                     required
-                    placeholder="Candidate Name"
+                    placeholder="Candidate Name (e.g. Samuel Adekunle)"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     className="w-full px-4 py-2.5 bg-[#0C0F14] border border-white/15 focus:border-[#1D7BF2] text-white placeholder-zinc-500 rounded-xl text-sm outline-none"
@@ -1276,9 +1362,18 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
                     </details>
                   </div>
                 </div>
+
+                {actionError && (
+                  <div className="sm:col-span-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center justify-between">
+                    <span className="font-semibold">{actionError}</span>
+                    <button type="button" onClick={() => setActionError(null)} className="text-red-400 hover:text-white font-bold px-1 cursor-pointer">✕</button>
+                  </div>
+                )}
+
                 <div className="sm:col-span-2 flex justify-end gap-2.5 pt-2">
                   <button
                     type="button"
+                    disabled={isSavingContestant}
                     onClick={() => setIsAddingContestant(false)}
                     className="px-4 py-2 border border-white/15 text-zinc-300 hover:text-white hover:bg-white/5 rounded-xl text-xs font-bold cursor-pointer transition-colors"
                   >
@@ -1286,9 +1381,17 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-[#1D7BF2] hover:bg-[#1565C0] text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-all"
+                    disabled={isSavingContestant}
+                    className="px-5 py-2 bg-[#1D7BF2] hover:bg-[#1565C0] disabled:opacity-60 text-white rounded-xl text-xs font-extrabold shadow-md cursor-pointer transition-all flex items-center gap-2"
                   >
-                    Save &amp; Approve
+                    {isSavingContestant ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving &amp; Approving...</span>
+                      </>
+                    ) : (
+                      <span>Save &amp; Approve</span>
+                    )}
                   </button>
                 </div>
               </form>

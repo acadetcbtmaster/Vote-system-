@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Contestant } from '../types';
 import { X, Check, Copy, Share2, MessageCircle, Twitter, Facebook, ArrowLeft } from 'lucide-react';
 import { VotersDecideLogo } from './VotersDecideLogo';
+import { safeOpenUrl } from '../lib/safeOpen';
 
 interface CandidateShareModalProps {
   contestant: Contestant;
@@ -22,7 +23,16 @@ export const CandidateShareModal: React.FC<CandidateShareModalProps> = ({
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(directUrl);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(directUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = directUrl;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
     } catch {
@@ -33,17 +43,17 @@ export const CandidateShareModal: React.FC<CandidateShareModalProps> = ({
 
   const handleWhatsAppShare = () => {
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(`${shareText} ${directUrl}`)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleTwitterShare = () => {
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(directUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   const handleFacebookShare = () => {
     const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(directUrl)}&quote=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    safeOpenUrl(url, '_blank');
   };
 
   return (

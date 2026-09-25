@@ -1083,16 +1083,26 @@ app.patch('/api/admin/contestants/:id/status', requireAdmin, async (req, res) =>
 app.post('/api/admin/contestants', requireAdmin, async (req, res) => {
   const { contest_id, contestant_number, name, bio, photo_url, whatsapp_number, status } = req.body;
 
-  if (!contest_id || !name || !contestant_number) {
-    res.status(400).json({ error: 'contest_id, contestant_number, and name are required' });
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    res.status(400).json({ error: 'Candidate name is required' });
     return;
   }
 
   loadStoreFromDisk();
+  const targetContestId = contest_id || localStore.contest.id || (localStore.contests && localStore.contests[0]?.id) || 'official-contest';
+
+  let targetNumber = (contestant_number || '').toString().trim();
+  if (!targetNumber) {
+    const existing = localStore.contestants.map(c => parseInt(c.contestant_number, 10)).filter(n => !isNaN(n));
+    targetNumber = (existing.length > 0 ? Math.max(...existing) + 1 : 1).toString().padStart(2, '0');
+  } else {
+    targetNumber = targetNumber.padStart(2, '0');
+  }
+
   const newC: LocalContestant = {
     id: crypto.randomUUID(),
-    contest_id,
-    contestant_number: contestant_number.toString().padStart(2, '0'),
+    contest_id: targetContestId,
+    contestant_number: targetNumber,
     name: name.trim(),
     bio: bio ? bio.trim() : '',
     photo_url: photo_url && photo_url.trim().length > 0 ? photo_url.trim() : null,

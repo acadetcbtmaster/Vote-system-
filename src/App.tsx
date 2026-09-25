@@ -10,13 +10,14 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { Footer } from './components/Footer';
 import { CandidateShareModal } from './components/CandidateShareModal';
 import { GeneralShareModal } from './components/GeneralShareModal';
+import { ContestantRegisterModal } from './components/ContestantRegisterModal';
 import { InteractionToast, ToastMessage } from './components/InteractionToast';
 import { VotersDecideLogo } from './components/VotersDecideLogo';
 import { Contest, Contestant, VoteSubmissionResult, DeviceStatusResult } from './types';
 import { getOrCreateDeviceToken } from './lib/deviceToken';
 import { supabaseClient } from './lib/supabase';
 import { dataService } from './services/dataService';
-import { Loader2, Shield, Search } from 'lucide-react';
+import { Loader2, Shield, Search, UserPlus } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<PortalTab>(() => {
