@@ -14,6 +14,7 @@ interface HeaderProps {
   followersCount?: number;
   isFollowing?: boolean;
   onFollow?: () => void;
+  isAdminAccess?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -25,17 +26,18 @@ export const Header: React.FC<HeaderProps> = ({
   followersCount = 0,
   isFollowing = false,
   onFollow,
+  isAdminAccess = false,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 w-full bg-[#12161D]/95 backdrop-blur-md border-b border-white/10 text-white shadow-xl transition-all">
-      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 sm:h-20 gap-4">
+      <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 sm:h-20 gap-2 sm:gap-4">
           {/* Brand Logo & Name */}
           <div
             id="header-brand-logo"
-            className="cursor-pointer select-none transition-opacity hover:opacity-90 flex items-center"
+            className="cursor-pointer select-none transition-opacity hover:opacity-90 flex items-center shrink-0"
             onClick={() => setActiveTab('public')}
             title="Voters Decide — Public Voting Portal"
           >
@@ -70,18 +72,20 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Leaderboard</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('admin')}
-              className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all flex items-center gap-2 ${
-                activeTab === 'admin'
-                  ? 'bg-amber-500/20 text-amber-300 shadow-sm border border-amber-500/30'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-              }`}
-            >
-              <Shield className="w-4 h-4 text-zinc-400" />
-              <span>Admin</span>
-            </button>
+            {isAdminAccess && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('admin')}
+                className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-all flex items-center gap-2 ${
+                  activeTab === 'admin'
+                    ? 'bg-amber-500/20 text-amber-300 shadow-sm border border-amber-500/30'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                }`}
+              >
+                <Shield className="w-4 h-4 text-zinc-400" />
+                <span>Admin</span>
+              </button>
+            )}
           </nav>
 
           {/* Desktop Right Side: Live Metrics + Action Buttons */}
@@ -92,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1A202A] border border-white/10 text-xs text-zinc-300 font-bold select-none shadow-sm"
               title="Real-Time Portal Views"
             >
-              <Eye className="w-3.5 h-3.5 text-zinc-400" />
+              <Eye className="w-3.5 h-3.5 text-amber-400" />
               <span className="font-extrabold text-white tabular-nums">
                 {viewsCount.toLocaleString()}
               </span>
@@ -105,7 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1A202A] border border-white/10 text-xs text-zinc-300 font-bold select-none shadow-sm"
               title="Verified Followers"
             >
-              <Users className="w-3.5 h-3.5 text-zinc-400" />
+              <Users className="w-3.5 h-3.5 text-[#1D7BF2]" />
               <span className="font-extrabold text-white tabular-nums">
                 {followersCount.toLocaleString()}
               </span>
@@ -152,29 +156,62 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Mobile Right: Hamburger Menu & Mobile Follow Quick Action */}
-          <div className="flex lg:hidden items-center gap-2">
+          {/* Mobile Right: Live Views, Followers & Follow Button at Top of Website */}
+          <div className="flex lg:hidden items-center gap-1.5 sm:gap-2">
+            {/* Mobile Views Pill */}
+            <div
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#1A202A] border border-white/10 text-[11px] text-zinc-300 font-bold select-none"
+              title="Real-Time Portal Views"
+            >
+              <Eye className="w-3 h-3 text-amber-400" />
+              <span className="font-extrabold text-white tabular-nums">
+                {viewsCount > 9999 ? `${(viewsCount / 1000).toFixed(1)}k` : viewsCount.toLocaleString()}
+              </span>
+            </div>
+
+            {/* Mobile Followers Pill */}
+            <div
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[#1A202A] border border-white/10 text-[11px] text-zinc-300 font-bold select-none"
+              title="Verified Followers"
+            >
+              <Users className="w-3 h-3 text-[#1D7BF2]" />
+              <span className="font-extrabold text-white tabular-nums">
+                {followersCount > 9999 ? `${(followersCount / 1000).toFixed(1)}k` : followersCount.toLocaleString()}
+              </span>
+            </div>
+
+            {/* Mobile Follow Quick Action */}
             {onFollow && (
               <button
                 type="button"
                 onClick={onFollow}
-                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all shadow-xs cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-extrabold transition-all shadow-xs cursor-pointer flex items-center gap-1 ${
                   isFollowing
                     ? 'bg-zinc-800 text-zinc-300 border border-zinc-700'
                     : 'bg-amber-500 text-black font-black hover:bg-amber-400'
                 }`}
               >
-                {isFollowing ? '✓ Following' : 'Follow'}
+                {isFollowing ? (
+                  <>
+                    <Check className="w-3 h-3 stroke-[3] text-emerald-400" />
+                    <span className="hidden sm:inline">Following</span>
+                  </>
+                ) : (
+                  <>
+                    <Heart className="w-3 h-3 fill-black" />
+                    <span>Follow</span>
+                  </>
+                )}
               </button>
             )}
 
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2.5 rounded-lg bg-[#1A202A] border border-white/10 text-zinc-200 hover:text-white hover:bg-zinc-800 transition-colors"
+              className="p-1.5 sm:p-2 rounded-lg bg-[#1A202A] border border-white/10 text-zinc-200 hover:text-white hover:bg-zinc-800 transition-colors"
               aria-label="Toggle Navigation Menu"
             >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {mobileMenuOpen ? <X className="w-4 h-4 sm:w-5 sm:h-5" /> : <Menu className="w-4 h-4 sm:w-5 sm:h-5" />}
             </button>
           </div>
         </div>
@@ -186,7 +223,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="grid grid-cols-2 gap-2 pt-2">
               <div className="p-2.5 rounded-lg bg-[#181D24] border border-white/10 flex items-center justify-between text-xs">
                 <span className="text-zinc-400 font-medium flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-zinc-400" />
+                  <Eye className="w-3.5 h-3.5 text-amber-400" />
                   <span>Views</span>
                 </span>
                 <span className="font-extrabold text-white tabular-nums">
@@ -196,7 +233,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <div className="p-2.5 rounded-lg bg-[#181D24] border border-white/10 flex items-center justify-between text-xs">
                 <span className="text-zinc-400 font-medium flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5 text-zinc-400" />
+                  <Users className="w-3.5 h-3.5 text-[#1D7BF2]" />
                   <span>Followers</span>
                 </span>
                 <span className="font-extrabold text-white tabular-nums">
@@ -206,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Navigation Tabs */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className={`grid ${isAdminAccess ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
               <button
                 type="button"
                 onClick={() => {
@@ -239,21 +276,23 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Leaderboard</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('admin');
-                  setMobileMenuOpen(false);
-                }}
-                className={`py-2.5 px-3 rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1.5 transition-all ${
-                  activeTab === 'admin'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : 'bg-[#181D24] text-zinc-300 border border-white/10'
-                }`}
-              >
-                <Shield className="w-4 h-4 text-zinc-400" />
-                <span>Admin</span>
-              </button>
+              {isAdminAccess && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('admin');
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`py-2.5 px-3 rounded-lg text-xs font-bold flex flex-col items-center justify-center gap-1.5 transition-all ${
+                    activeTab === 'admin'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : 'bg-[#181D24] text-zinc-300 border border-white/10'
+                  }`}
+                >
+                  <Shield className="w-4 h-4 text-zinc-400" />
+                  <span>Admin</span>
+                </button>
+              )}
             </div>
 
             {onOpenShare && (

@@ -76,6 +76,62 @@ export const ContestHero: React.FC<ContestHeroProps> = ({
             Real People. <span className="text-[#1D7BF2]">Real Votes.</span> Real Winners.
           </p>
 
+          {/* Prominent Live Views & Followers Front Page Bar */}
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 pt-2 pb-1">
+            {/* Live Views Badge */}
+            <div
+              id="hero-views-badge"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#171D27] border border-white/10 text-xs text-zinc-300 font-bold shadow-md hover:border-amber-400/40 transition-colors select-none"
+              title="Real-Time Front Page Views"
+            >
+              <Eye className="w-4 h-4 text-amber-400" />
+              <span className="font-black text-white text-sm tabular-nums">
+                {viewsCount.toLocaleString()}
+              </span>
+              <span className="text-[11px] uppercase tracking-wider text-zinc-400 font-bold">Views</span>
+            </div>
+
+            {/* Live Followers Badge */}
+            <div
+              id="hero-followers-badge"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#171D27] border border-white/10 text-xs text-zinc-300 font-bold shadow-md hover:border-[#1D7BF2]/40 transition-colors select-none"
+              title="Verified Official Channel Followers"
+            >
+              <Users className="w-4 h-4 text-[#1D7BF2]" />
+              <span className="font-black text-white text-sm tabular-nums">
+                {followersCount.toLocaleString()}
+              </span>
+              <span className="text-[11px] uppercase tracking-wider text-zinc-400 font-bold">Followers</span>
+            </div>
+
+            {/* Live Follow Action Button */}
+            {onFollow && (
+              <button
+                id="hero-top-follow-btn"
+                type="button"
+                onClick={onFollow}
+                className={`inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-black tracking-wide transition-all shadow-md cursor-pointer ${
+                  isFollowing
+                    ? 'bg-zinc-800 text-zinc-200 border border-zinc-700'
+                    : 'bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-extrabold shadow-amber-500/25'
+                }`}
+                title={isFollowing ? 'You are following Voters Decide' : 'Follow Voters Decide Official Channel'}
+              >
+                {isFollowing ? (
+                  <>
+                    <Check className="w-4 h-4 stroke-[3] text-emerald-400" />
+                    <span>Following Channel</span>
+                  </>
+                ) : (
+                  <>
+                    <Heart className="w-4 h-4 fill-black" />
+                    <span>Follow Channel</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
           {/* Subtle contest description if provided */}
           {contest.description && (
             <p className="text-xs sm:text-sm text-zinc-400 max-w-xl mx-auto leading-relaxed pt-1">

@@ -376,8 +376,11 @@ app.get('/api/contests/:slug', async (req, res) => {
   const { slug } = req.params;
 
   try {
-    let contest: LocalContest | null = null;
-    let contestants: LocalContestant[] = [];
+    loadStoreFromDisk();
+    const localContest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
+
+    let cloudContestData: any = null;
+    let cloudContestants: any[] = [];
 
     const supabaseReady = await isSupabaseReady();
     if (supabase && supabaseReady) {
@@ -389,16 +392,15 @@ app.get('/api/contests/:slug', async (req, res) => {
           .single();
 
         if (!cErr && contestData) {
-          contest = contestData;
+          cloudContestData = contestData;
           const { data: contestantData } = await supabase
             .from('contestants')
             .select('id, contest_id, contestant_number, name, bio, photo_url, status, vote_count, created_at')
             .eq('contest_id', contestData.id)
-            .eq('status', 'approved')
             .order('vote_count', { ascending: false });
 
-          if (contestantData) {
-            contestants = contestantData;
+          if (contestantData && contestantData.length > 0) {
+            cloudContestants = contestantData;
           }
         }
       } catch (err) {
@@ -406,25 +408,37 @@ app.get('/api/contests/:slug', async (req, res) => {
       }
     }
 
-    // Fallback to local store if not found in cloud
-    if (!contest) {
-      contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0] || null;
-      if (contest) {
-        contestants = localStore.contestants
-          .filter(ct => ct.contest_id === contest!.id && ct.status === 'approved')
-          .sort((a, b) => b.vote_count - a.vote_count || a.contestant_number.localeCompare(b.contestant_number));
-      }
-    }
+    // Merge: localContest contains the authoritative changes saved by the admin in the Admin Panel
+    const contest: LocalContest = {
+      ...(cloudContestData || {}),
+      ...(localContest || {}),
+    };
 
-    if (!contest) {
+    if (!contest || !contest.id) {
       res.status(404).json({ error: 'Contest not found', message: 'No contest found with the provided identifier.' });
       return;
     }
 
+    // Contestants: localStore.contestants contains the authoritative list configured by the admin
+    // Only approved contestants appear on the public ballot!
+    let approvedContestants = (localStore.contestants || []).filter(ct => ct.status === 'approved');
+
+    // If cloud has vote counts for these contestants, synchronize the highest vote count
+    if (cloudContestants.length > 0) {
+      const cloudVoteMap = new Map(cloudContestants.map(c => [c.id, c.vote_count || 0]));
+      approvedContestants = approvedContestants.map(lc => ({
+        ...lc,
+        vote_count: Math.max(lc.vote_count || 0, cloudVoteMap.get(lc.id) ?? 0),
+      }));
+    }
+
+    // Sort by vote count descending, then contestant number ascending
+    approvedContestants.sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0) || a.contestant_number.localeCompare(b.contestant_number));
+
     res.json({
       contest,
-      contestants,
-      totalVotes: contestants.reduce((acc, c) => acc + (c.vote_count || 0), 0),
+      contestants: approvedContestants,
+      totalVotes: approvedContestants.reduce((acc, c) => acc + (c.vote_count || 0), 0),
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Server error retrieving contest', details: err.message });
@@ -551,29 +565,18 @@ app.get('/api/contests/:slug/device-status', async (req, res) => {
   }
 
   try {
+    loadStoreFromDisk();
     let contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
     let contestId = contest?.id;
     let maxAllowed = contest?.max_submissions_per_device || 2;
     let contestStatus = contest?.status || 'active';
+    let endTime: string | null = contest?.end_time || null;
 
     let count = 0;
-    let endTime: string | null = contest?.end_time || null;
 
     const supabaseReady = await isSupabaseReady();
     if (supabase && supabaseReady) {
       try {
-        const { data: cData } = await supabase
-          .from('contests')
-          .select('id, status, max_submissions_per_device, end_time')
-          .or(`slug.eq.${slug},id.eq.${slug}`)
-          .single();
-        if (cData) {
-          contestId = cData.id;
-          maxAllowed = cData.max_submissions_per_device || 2;
-          contestStatus = cData.status;
-          endTime = cData.end_time;
-        }
-
         const { count: sbCount, error } = await supabase
           .from('participations')
           .select('*', { count: 'exact', head: true })
@@ -1055,6 +1058,7 @@ app.patch('/api/admin/contestants/:id/status', requireAdmin, async (req, res) =>
     return;
   }
 
+  loadStoreFromDisk();
   const contestant = localStore.contestants.find(c => c.id === id);
   if (!contestant) {
     res.status(404).json({ error: 'Contestant not found' });
@@ -1084,6 +1088,7 @@ app.post('/api/admin/contestants', requireAdmin, async (req, res) => {
     return;
   }
 
+  loadStoreFromDisk();
   const newC: LocalContestant = {
     id: crypto.randomUUID(),
     contest_id,
@@ -1116,6 +1121,7 @@ app.patch('/api/admin/contestants/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { name, bio, photo_url, whatsapp_number, contestant_number } = req.body;
 
+  loadStoreFromDisk();
   const contestant = localStore.contestants.find(c => c.id === id);
   if (!contestant) {
     res.status(404).json({ error: 'Contestant not found' });
@@ -1149,6 +1155,7 @@ app.patch('/api/admin/contestants/:id', requireAdmin, async (req, res) => {
 // Admin: Delete Contestant
 app.delete('/api/admin/contestants/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
+  loadStoreFromDisk();
   const index = localStore.contestants.findIndex(c => c.id === id);
   if (index === -1) {
     res.status(404).json({ error: 'Contestant not found' });
@@ -1174,6 +1181,7 @@ app.patch('/api/admin/contests/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
 
+  loadStoreFromDisk();
   const contest = localStore.contests.find(c => c.id === id || c.slug === id) || localStore.contests[0];
   if (!contest) {
     res.status(404).json({ error: 'Contest not found' });

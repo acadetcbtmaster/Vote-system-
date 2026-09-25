@@ -19,7 +19,18 @@ import { dataService } from './services/dataService';
 import { Loader2, Shield, Search } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<PortalTab>('public');
+  const [activeTab, setActiveTab] = useState<PortalTab>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('admin') || params.get('portal') === 'admin' || params.has('login')) {
+        return 'admin';
+      }
+      if (params.get('tab') === 'leaderboard') {
+        return 'leaderboard';
+      }
+    } catch {}
+    return 'public';
+  });
   const [contest, setContest] = useState<Contest | null>(null);
   const [contestants, setContestants] = useState<Contestant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,6 +75,21 @@ export default function App() {
   const [isFollowing, setIsFollowing] = useState<boolean>(() => {
     try {
       return localStorage.getItem('vd_is_following') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Admin access gate: restrict admin entry points unless specific admin URL parameter is present
+  const [isAdminAccess] = useState<boolean>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return (
+        params.has('admin') ||
+        params.get('admin') === 'true' ||
+        params.get('portal') === 'admin' ||
+        params.has('adminkey')
+      );
     } catch {
       return false;
     }
@@ -158,11 +184,11 @@ export default function App() {
     [deviceToken]
   );
 
-  // Initial load
+  // Initial load and auto-refresh whenever switching tabs
   useEffect(() => {
     fetchContestData();
     fetchDeviceStatus();
-  }, [fetchContestData, fetchDeviceStatus]);
+  }, [fetchContestData, fetchDeviceStatus, activeTab]);
 
   // Scroll to top on tab or result change
   useEffect(() => {
@@ -356,13 +382,18 @@ export default function App() {
         followersCount={followersCount}
         isFollowing={isFollowing}
         onFollow={handleFollow}
+        isAdminAccess={isAdminAccess}
       />
 
       {/* Main Content Areas */}
       <main className="relative z-10 flex-1 w-full max-w-full">
         {activeTab === 'admin' ? (
           <AdminDashboard
-            onBackToApp={() => setActiveTab('public')}
+            onBackToApp={() => {
+              setActiveTab('public');
+              fetchContestData();
+              fetchDeviceStatus();
+            }}
             onRefreshPublicData={() => {
               fetchContestData();
               fetchDeviceStatus();
@@ -451,24 +482,36 @@ export default function App() {
 
               {/* Contestants List or Empty State */}
               {contestants.length === 0 ? (
-                <div className="bg-[#151921] rounded-2xl border border-white/10 p-8 sm:p-14 text-center max-w-xl mx-auto shadow-xl my-6">
-                  <div className="w-16 h-16 rounded-2xl bg-[#1D2430] text-amber-400 flex items-center justify-center mx-auto mb-4 border border-white/10">
-                    <Shield className="w-8 h-8" />
+                isAdminAccess ? (
+                  <div className="bg-[#151921] rounded-2xl border border-white/10 p-8 sm:p-14 text-center max-w-xl mx-auto shadow-xl my-6">
+                    <div className="w-16 h-16 rounded-2xl bg-[#1D2430] text-amber-400 flex items-center justify-center mx-auto mb-4 border border-white/10">
+                      <Shield className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">No Candidates Added Yet</h3>
+                    <p className="text-sm text-zinc-400 leading-relaxed mb-6">
+                      Official contestants will appear here once registered and approved by the platform
+                      administrator.
+                    </p>
+                    <button
+                      id="btn-goto-admin-login"
+                      onClick={() => setActiveTab('admin')}
+                      className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm rounded-xl shadow-md shadow-amber-500/20 transition-all inline-flex items-center gap-2 cursor-pointer"
+                    >
+                      <Shield className="w-4 h-4 text-black" />
+                      <span>Admin Login to Add Contestants</span>
+                    </button>
                   </div>
-                  <h3 className="text-xl font-bold text-white mb-2">No Candidates Added Yet</h3>
-                  <p className="text-sm text-zinc-400 leading-relaxed mb-6">
-                    Official contestants will appear here once registered and approved by the platform
-                    administrator.
-                  </p>
-                  <button
-                    id="btn-goto-admin-login"
-                    onClick={() => setActiveTab('admin')}
-                    className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm rounded-xl shadow-md shadow-amber-500/20 transition-all inline-flex items-center gap-2 cursor-pointer"
-                  >
-                    <Shield className="w-4 h-4 text-black" />
-                    <span>Admin Login to Add Contestants</span>
-                  </button>
-                </div>
+                ) : (
+                  <div className="bg-[#151921] rounded-2xl border border-white/10 p-8 sm:p-14 text-center max-w-xl mx-auto shadow-xl my-6">
+                    <div className="w-16 h-16 rounded-2xl bg-[#1D2430] text-amber-400 flex items-center justify-center mx-auto mb-4 border border-white/10">
+                      <Shield className="w-8 h-8" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">Official Ballot Candidates</h3>
+                    <p className="text-sm text-zinc-400 leading-relaxed max-w-md mx-auto">
+                      Official voting candidates are being synchronized for the scheduled voting period. Please follow the official channel above for updates.
+                    </p>
+                  </div>
+                )
               ) : filteredContestants.length === 0 ? (
                 <div className="bg-[#151921] rounded-xl border border-white/10 p-10 sm:p-12 text-center max-w-lg mx-auto">
                   <Search className="w-8 h-8 text-zinc-500 mx-auto mb-3" />
@@ -561,6 +604,7 @@ export default function App() {
           setVoteSuccessResult(null);
         }}
         onOpenShare={() => setShowGeneralShareModal(true)}
+        isAdminAccess={isAdminAccess}
       />
     </div>
   );

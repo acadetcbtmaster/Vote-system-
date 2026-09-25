@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, ShieldCheck } from 'lucide-react';
+import { Shield, ShieldCheck, Lock } from 'lucide-react';
 import { VotersDecideLogo } from './VotersDecideLogo';
 
 interface FooterProps {
@@ -7,6 +7,7 @@ interface FooterProps {
   onOpenVote: () => void;
   onOpenLeaderboard: () => void;
   onOpenShare?: () => void;
+  isAdminAccess?: boolean;
 }
 
 export const Footer: React.FC<FooterProps> = ({
@@ -14,6 +15,7 @@ export const Footer: React.FC<FooterProps> = ({
   onOpenVote,
   onOpenLeaderboard,
   onOpenShare,
+  isAdminAccess = false,
 }) => {
   return (
     <footer className="bg-[#0D1015] border-t border-white/10 text-zinc-400 text-xs mt-auto w-full">
@@ -68,15 +70,17 @@ export const Footer: React.FC<FooterProps> = ({
                   Live Leaderboard
                 </button>
               </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={onOpenAdmin}
-                  className="hover:text-amber-400 transition-colors cursor-pointer"
-                >
-                  Administrator Portal
-                </button>
-              </li>
+              {isAdminAccess && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={onOpenAdmin}
+                    className="hover:text-amber-400 transition-colors cursor-pointer"
+                  >
+                    Administrator Portal
+                  </button>
+                </li>
+              )}
               {onOpenShare && (
                 <li>
                   <button
@@ -94,8 +98,17 @@ export const Footer: React.FC<FooterProps> = ({
 
         {/* Bottom Bar with Required Copyright & Branding */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-center sm:text-left">
-          <p className="text-zinc-500 font-medium">
-            © Voters Decide — Created by Menmex
+          <p className="text-zinc-500 font-medium flex items-center justify-center sm:justify-start gap-1">
+            <span>© Voters Decide — Created by Menmex</span>
+            <button
+              type="button"
+              onClick={onOpenAdmin}
+              className="text-zinc-600 hover:text-zinc-400 p-0.5 ml-1 transition-colors cursor-pointer inline-flex items-center"
+              title="Admin Portal Access"
+              aria-label="Admin Access"
+            >
+              <Lock className="w-3 h-3 opacity-30 hover:opacity-100 transition-opacity" />
+            </button>
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3 text-zinc-500 text-[11px]">
             <span>Verified Voting System</span>
