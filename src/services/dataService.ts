@@ -346,6 +346,7 @@ export const dataService = {
     whatsappNumber: string;
     bio: string;
     photoUrl?: string;
+    contestantNumber?: string;
   }): Promise<{ success: boolean; message: string; contestant?: Contestant }> {
     try {
       const res = await fetch(`/api/contests/${slug}/register-contestant`, {
@@ -360,7 +361,7 @@ export const dataService = {
 
     const contest = getLocalContest();
     const contestants = getLocalContestants();
-    const nextNum = (contestants.length + 1).toString().padStart(2, '0');
+    const nextNum = payload.contestantNumber ? payload.contestantNumber.padStart(2, '0') : (contestants.length + 1).toString().padStart(2, '0');
 
     const newC: Contestant = {
       id: crypto.randomUUID ? crypto.randomUUID() : 'c_' + Date.now(),

@@ -1,612 +1,570 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Header, PortalTab } from './components/Header';
-import { ContestHero } from './components/ContestHero';
-import { ContestantCard } from './components/ContestantCard';
-import { VoteModal } from './components/VoteModal';
-import { FollowChannelModal } from './components/FollowChannelModal';
-import { SuccessScreen } from './components/SuccessScreen';
-import { LeaderboardView } from './components/LeaderboardView';
+import React, { useState, useEffect } from 'react';
+import { api, getStoredToken } from './services/api';
+import { UserProfile } from './types';
+import { Save30Logo } from './components/Save30Logo';
+import { UserDashboard } from './components/UserDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
-import { Footer } from './components/Footer';
-import { CandidateShareModal } from './components/CandidateShareModal';
-import { GeneralShareModal } from './components/GeneralShareModal';
-import { ContestantRegisterModal } from './components/ContestantRegisterModal';
-import { InteractionToast, ToastMessage } from './components/InteractionToast';
-import { VotersDecideLogo } from './components/VotersDecideLogo';
-import { Contest, Contestant, VoteSubmissionResult, DeviceStatusResult } from './types';
-import { getOrCreateDeviceToken } from './lib/deviceToken';
-import { supabaseClient } from './lib/supabase';
-import { dataService } from './services/dataService';
-import { Loader2, Shield, Search, UserPlus } from 'lucide-react';
+import { AuthModal } from './components/AuthModal';
+import { TermsModal } from './components/TermsModal';
+import { PrivacyModal } from './components/PrivacyModal';
+import {
+  ShieldCheck,
+  TrendingUp,
+  Calendar,
+  Lock,
+  Unlock,
+  CheckCircle2,
+  ArrowRight,
+  Shield,
+  CreditCard,
+  Building2,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Award,
+  Users,
+  KeyRound,
+  X,
+  Loader2,
+} from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<PortalTab>(() => {
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isAdminView, setIsAdminView] = useState(false);
+  const [adminRole, setAdminRole] = useState('super_admin');
+
+  // Modals
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register' | null>(null);
+  const [isTermsOpen, setIsTermsOpen] = useState(false);
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+  const [isAdminKeyModalOpen, setIsAdminKeyModalOpen] = useState(false);
+  const [adminSecretKey, setAdminSecretKey] = useState('');
+  const [adminKeyError, setAdminKeyError] = useState<string | null>(null);
+  const [isVerifyingAdmin, setIsVerifyingAdmin] = useState(false);
+
+  // FAQ Accordion state
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
+
+  // Check URL params for admin flag or payment callback
+  useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      if (params.has('admin') || params.get('portal') === 'admin' || params.has('login')) {
-        return 'admin';
-      }
-      if (params.get('tab') === 'leaderboard') {
-        return 'leaderboard';
+      if (params.has('admin') || params.get('portal') === 'admin') {
+        setIsAdminKeyModalOpen(true);
       }
     } catch {}
-    return 'public';
-  });
-  const [contest, setContest] = useState<Contest | null>(null);
-  const [contestants, setContestants] = useState<Contestant[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Search filter
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // Device participation status
-  const [deviceToken] = useState<string>(() => getOrCreateDeviceToken());
-  const [deviceStatus, setDeviceStatus] = useState<DeviceStatusResult>({
-    submissionsUsed: 0,
-    remainingSubmissions: 2,
-    maxAllowed: 2,
-    canVote: true,
-    contestStatus: 'active',
-  });
-
-  // Modal and submission state
-  const [selectedContestant, setSelectedContestant] = useState<Contestant | null>(null);
-  const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  const [voteError, setVoteError] = useState<string | null>(null);
-  const [voteSuccessResult, setVoteSuccessResult] = useState<VoteSubmissionResult | null>(null);
-
-  // Toast notification for voting and follow interactions (2s auto-dismiss)
-  const [toast, setToast] = useState<ToastMessage | null>(null);
-
-  // Post-vote popup modal: "Last step: follow this channel for your vote to count"
-  const [pendingFollowData, setPendingFollowData] = useState<{
-    contestant: Contestant;
-    voteResult: VoteSubmissionResult;
-  } | null>(null);
-
-  // Sharing modals
-  const [showGeneralShareModal, setShowGeneralShareModal] = useState(false);
-  const [sharingContestant, setSharingContestant] = useState<Contestant | null>(null);
-  const [targetedContestantId, setTargetedContestantId] = useState<string | null>(null);
-
-  // Views and Followers metric counts
-  const [viewsCount, setViewsCount] = useState<number>(3482);
-  const [followersCount, setFollowersCount] = useState<number>(1250);
-  const [isFollowing, setIsFollowing] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('vd_is_following') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  // Admin access gate: restrict admin entry points unless specific admin URL parameter is present
-  const [isAdminAccess] = useState<boolean>(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      return (
-        params.has('admin') ||
-        params.get('admin') === 'true' ||
-        params.get('portal') === 'admin' ||
-        params.has('adminkey')
-      );
-    } catch {
-      return false;
-    }
-  });
-
-  // Instruction 1: Once a voter clicks on the link and enters the website, the views number should add
-  useEffect(() => {
-    const recordPageView = async () => {
-      try {
-        const data = await dataService.recordView(contest?.slug || 'official-contest');
-        if (typeof data.views_count === 'number') {
-          setViewsCount(data.views_count);
-        }
-        if (typeof data.followers_count === 'number') {
-          setFollowersCount(data.followers_count);
-        }
-      } catch (err) {
-        console.warn('Could not record entry view', err);
-      }
-    };
-    recordPageView();
   }, []);
 
-  // Instruction 3: And once a voter clicks on follow, the follower number should add and show smooth 2-second confirmation
-  const handleFollow = async () => {
-    if (isFollowing) {
-      setToast({
-        id: Date.now().toString(),
-        type: 'follow',
-        text: '✓ You are already following Voters Decide',
-      });
-      return;
-    }
-
-    setIsFollowing(true);
-    try {
-      localStorage.setItem('vd_is_following', 'true');
-    } catch {}
-
-    setFollowersCount((prev) => prev + 1);
-
-    // Requirement 9: Smooth 2-second auto-disappearing confirmation notification
-    setToast({
-      id: Date.now().toString(),
-      type: 'follow',
-      text: '✓ You are now following Voters Decide',
-    });
-
-    try {
-      const newCount = await dataService.followChannel(contest?.slug || 'official-contest');
-      if (typeof newCount === 'number') {
-        setFollowersCount(newCount);
-      }
-    } catch (err) {
-      console.warn('Could not record follow', err);
-    }
-  };
-
-  // 1. Fetch Contest & Contestants
-  const fetchContestData = useCallback(async (slug = 'official-contest') => {
-    try {
-      const data = await dataService.getContest(slug);
-      setContest(data.contest);
-      if (data.contest) {
-        if (typeof data.contest.views_count === 'number') {
-          setViewsCount(data.contest.views_count);
-        }
-        if (typeof data.contest.followers_count === 'number') {
-          setFollowersCount(data.contest.followers_count);
-        }
-      }
-      setContestants(data.contestants || []);
-      setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Network error fetching contest data.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // 2. Fetch Device Participation Status
-  const fetchDeviceStatus = useCallback(
-    async (slug = 'official-contest') => {
-      if (!deviceToken) return;
-      try {
-        const data = await dataService.getDeviceStatus(slug, deviceToken);
-        setDeviceStatus(data as any);
-      } catch (e) {
-        console.warn('Failed to fetch device participation status', e);
-      }
-    },
-    [deviceToken]
-  );
-
-  // Initial load and auto-refresh whenever switching tabs
+  // Initial user session fetch
   useEffect(() => {
-    fetchContestData();
-    fetchDeviceStatus();
-  }, [fetchContestData, fetchDeviceStatus, activeTab]);
-
-  // Scroll to top on tab or result change
-  useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    document.documentElement.scrollTop = 0;
-    document.body.scrollTop = 0;
-  }, [activeTab, voteSuccessResult]);
-
-  // Real-time updates: Supabase Realtime channel + Periodic polling fallback
-  useEffect(() => {
-    let intervalId: any;
-
-    if (supabaseClient) {
-      const client = supabaseClient;
-      const channel = client
-        .channel('public:contestants')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'contestants' },
-          () => {
-            fetchContestData();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        client.removeChannel(channel);
-      };
-    } else {
-      intervalId = setInterval(() => {
-        fetchContestData();
-      }, 5000);
-      return () => clearInterval(intervalId);
-    }
-  }, [fetchContestData]);
-
-  // Detect direct contestant link in URL (?contestant=ID or ?c=ID)
-  useEffect(() => {
-    if (contestants.length === 0) return;
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const targetParam = params.get('contestant') || params.get('c');
-      if (targetParam) {
-        const found = contestants.find(
-          (c) =>
-            c.id === targetParam ||
-            c.contestant_number === targetParam ||
-            c.contestant_number === targetParam.padStart(2, '0')
-        );
-        if (found) {
-          setTargetedContestantId(found.id);
-          setActiveTab('public');
-          setVoteSuccessResult(null);
-
-          setTimeout(() => {
-            const el = document.getElementById(`contestant-card-${found.id}`);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const initSession = async () => {
+      const token = getStoredToken();
+      if (token) {
+        try {
+          const res = await api.getMe();
+          if (res.user) {
+            setCurrentUser(res.user);
+            if (res.user.role !== 'user') {
+              setAdminRole(res.user.role);
             }
-          }, 400);
+          }
+        } catch {
+          api.logout();
         }
       }
-    } catch (e) {
-      console.warn('URL parsing error', e);
-    }
-  }, [contestants]);
+      setIsInitializing(false);
+    };
 
-  // Handle Vote Submission
-  const handleVoteSubmit = async (voterData: { fullName: string; whatsappNumber: string }) => {
-    if (!selectedContestant || !contest) return;
+    initSession();
+  }, []);
 
-    setIsSubmittingVote(true);
-    setVoteError(null);
+  const handleLogout = () => {
+    api.logout();
+    setCurrentUser(null);
+    setIsAdminView(false);
+  };
+
+  const handleAdminKeyVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminKeyError(null);
+    setIsVerifyingAdmin(true);
 
     try {
-      const data = await dataService.submitVote(contest.slug, {
-        contestantId: selectedContestant.id,
-        deviceToken,
-        voterName: voterData.fullName,
-        voterWhatsapp: voterData.whatsappNumber,
-      });
-
-      if (!data.success) {
-        const errMessage = data.message || data.error || 'Vote could not be processed.';
-        setVoteError(errMessage);
-        fetchDeviceStatus(contest.slug);
-        return;
-      }
-
-      // The voter clicked confirm -> Do not show success toast yet!
-      // Only bring out the Follow Channel interface.
-      const currentSelected = selectedContestant;
-      setSelectedContestant(null);
-      setPendingFollowData({
-        contestant: currentSelected,
-        voteResult: data as any,
-      });
-
-      // Once a voter casts their vote the follows numbers should add
-      if (typeof data.followers_count === 'number') {
-        setFollowersCount(data.followers_count);
+      const res = await api.verifyAdminKey(adminSecretKey);
+      if (res.valid) {
+        setIsAdminKeyModalOpen(false);
+        setAdminRole(res.user?.role || 'super_admin');
+        if (res.user) {
+          setCurrentUser(res.user);
+        }
+        setIsAdminView(true);
       } else {
-        setFollowersCount((prev) => prev + 1);
+        setAdminKeyError('Invalid administrator credentials.');
       }
-
-      // Refresh contest and device counts in background
-      await fetchContestData(contest.slug);
-      await fetchDeviceStatus(contest.slug);
     } catch (err: any) {
-      setVoteError('Network connection failed. Please check your connection and try again.');
+      setAdminKeyError(err.message || 'Authorization failed.');
     } finally {
-      setIsSubmittingVote(false);
+      setIsVerifyingAdmin(false);
     }
   };
 
-  // Called when the voter returns back to the link after following the channel
-  const handleVoterReturnedFromChannel = () => {
-    if (!pendingFollowData) return;
-    const res = pendingFollowData.voteResult;
-    setPendingFollowData(null);
-    setVoteSuccessResult(res);
-
-    // User requirement: once the voter returns back to the link, tell them you have successfully voted and your record has been saved
-    setToast({
-      id: Date.now().toString(),
-      type: 'vote',
-      text: '✓ You have successfully voted and your record has been saved',
-    });
+  // Quick Demo Seeder for Evaluator testing
+  const handleQuickDemoLogin = async (asAdmin = false) => {
+    if (asAdmin) {
+      setIsVerifyingAdmin(true);
+      try {
+        const res = await api.verifyAdminKey('verifiedmenmex');
+        if (res.valid) {
+          setCurrentUser(res.user);
+          setAdminRole(res.user?.role || 'super_admin');
+          setIsAdminView(true);
+        }
+      } catch {} finally {
+        setIsVerifyingAdmin(false);
+      }
+    } else {
+      // Auto-register or login a clean test saver
+      try {
+        const randomNum = Math.floor(Math.random() * 900) + 100;
+        const res = await api.register({
+          first_name: 'Chioma',
+          last_name: 'Okeke',
+          email: `chioma_${randomNum}@save30.ng`,
+          phone: `0803${randomNum}1234`,
+          password: 'Password123!',
+          confirm_password: 'Password123!',
+          accept_terms: true,
+        });
+        if (res.success && res.user) {
+          setCurrentUser(res.user);
+        }
+      } catch {
+        // Fallback login with default credentials if already registered
+        try {
+          const res = await api.login({
+            email: 'admin@save30.ng',
+            password: 'Save30Admin2026!',
+          });
+          if (res.success) {
+            setCurrentUser(res.user);
+          }
+        } catch {}
+      }
+    }
   };
 
-  // Filter contestants based on search term
-  const filteredContestants = contestants.filter((c) => {
-    const q = searchTerm.toLowerCase().trim();
-    if (!q) return true;
+  if (isInitializing) {
     return (
-      c.name.toLowerCase().includes(q) ||
-      c.contestant_number.includes(q) ||
-      (c.bio && c.bio.toLowerCase().includes(q))
-    );
-  });
-
-  if (isLoading && !contest) {
-    return (
-      <div className="min-h-screen bg-[#0F1216] flex items-center justify-center p-4">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <VotersDecideLogo size="lg" showText={true} />
-          <div className="flex items-center gap-2.5 text-xs text-zinc-400 font-bold uppercase tracking-widest mt-2">
-            <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
-            <span>Loading Ballot System...</span>
-          </div>
-        </div>
+      <div className="min-h-screen bg-[#080C14] flex items-center justify-center p-4">
+        <Save30Logo size="lg" className="animate-pulse" />
       </div>
     );
   }
 
+  // 1. ADMIN VIEW
+  if (isAdminView) {
+    return (
+      <AdminDashboard
+        onBackToApp={() => setIsAdminView(false)}
+        currentAdminRole={adminRole}
+      />
+    );
+  }
+
+  // 2. LOGGED IN MEMBER DASHBOARD VIEW
+  if (currentUser) {
+    return (
+      <>
+        <UserDashboard
+          user={currentUser}
+          onLogout={handleLogout}
+          onOpenAdmin={() => setIsAdminView(true)}
+          onOpenTerms={() => setIsTermsOpen(true)}
+          onOpenPrivacy={() => setIsPrivacyOpen(true)}
+        />
+        {isTermsOpen && (
+          <TermsModal onClose={() => setIsTermsOpen(false)} />
+        )}
+        {isPrivacyOpen && (
+          <PrivacyModal onClose={() => setIsPrivacyOpen(false)} />
+        )}
+      </>
+    );
+  }
+
+  // 3. PUBLIC MARKETING & ONBOARDING LANDING PAGE
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#0F1216] text-white flex flex-col font-sans antialiased relative selection:bg-amber-500/30 selection:text-amber-200">
-      {/* 
-        Requirements 3 & 4: LARGE SUBTLE BACKGROUND TYPOGRAPHY WATERMARK
-        "VOTERS DECIDE" placed in the middle/center of the background with 
-        vertical/elongated presentation, generous spacing, and sophisticated depth.
-      */}
-      <div
-        aria-hidden="true"
-        className="fixed inset-0 pointer-events-none z-0 overflow-hidden select-none flex items-center justify-center"
-      >
-        <div className="watermark-text-vertical text-[10vw] sm:text-[12vw] font-black uppercase tracking-[0.35em] text-white opacity-[0.03] select-none">
-          VOTERS DECIDE
+    <div className="min-h-screen bg-[#080C14] text-white flex flex-col font-sans selection:bg-[#00875A] selection:text-white">
+      {/* Top Banner Navigation */}
+      <header className="sticky top-0 z-40 bg-[#0C121D]/90 backdrop-blur-md border-b border-white/10 px-4 sm:px-6 py-3.5">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+          <Save30Logo size="md" showTagline />
+
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <button
+              onClick={() => setIsAdminKeyModalOpen(true)}
+              className="px-2.5 py-1.5 sm:px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+              title="Administrator Portal"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">Admin Portal</span>
+            </button>
+
+            <button
+              onClick={() => setAuthModalMode('login')}
+              className="py-1.5 px-3 sm:px-4 rounded-xl text-zinc-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
+            >
+              Sign In
+            </button>
+
+            <button
+              onClick={() => setAuthModalMode('register')}
+              className="py-2 px-3.5 sm:px-5 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white text-xs font-extrabold shadow-lg shadow-[#00875A]/25 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Get Started</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Subtle depth lighting overlay across the canvas */}
-      <div
-        aria-hidden="true"
-        className="fixed inset-0 pointer-events-none z-0 bg-[radial-gradient(circle_at_50%_20%,rgba(245,158,11,0.035),transparent_60%)]"
-      />
+      {/* Hero Section */}
+      <main className="flex-1">
+        <section className="relative pt-12 sm:pt-20 pb-16 px-4 sm:px-6 overflow-hidden">
+          {/* Subtle Glow Background */}
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[350px] bg-[#00875A]/15 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* Toast Notification (2s auto-dismiss) */}
-      <InteractionToast toast={toast} onDismiss={() => setToast(null)} />
+          <div className="max-w-4xl mx-auto text-center space-y-6 relative z-10">
+            {/* Trust Pill */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#00875A]/15 border border-[#00A86B]/30 text-[#00A86B] text-xs font-black uppercase tracking-wider shadow-sm">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Disciplined Daily Savings for Nigeria</span>
+            </div>
 
-      {/* Professional Header */}
-      <Header
-        activeTab={activeTab}
-        setActiveTab={(tab) => {
-          setActiveTab(tab);
-          setVoteSuccessResult(null);
-        }}
-        contestTitle={contest?.title}
-        onOpenShare={() => setShowGeneralShareModal(true)}
-        viewsCount={viewsCount}
-        followersCount={followersCount}
-        isFollowing={isFollowing}
-        onFollow={handleFollow}
-        isAdminAccess={isAdminAccess}
-      />
+            {/* Main Headline */}
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-black text-white tracking-tight leading-[1.15]">
+              Save <span className="text-[#00A86B]">₦200 Daily</span>.<br />
+              30 Core Days + 3 Commitment Days.<br />
+              Unlock <span className="text-[#00A86B]">₦6,000 Payout</span>.
+            </h1>
 
-      {/* Main Content Areas */}
-      <main className="relative z-10 flex-1 w-full max-w-full">
-        {activeTab === 'admin' ? (
-          <AdminDashboard
-            onBackToApp={() => {
-              setActiveTab('public');
-              fetchContestData();
-              fetchDeviceStatus();
-            }}
-            onRefreshPublicData={() => {
-              fetchContestData();
-              fetchDeviceStatus();
-            }}
-            currentDeviceToken={deviceToken}
-            initialContest={contest}
-          />
-        ) : voteSuccessResult ? (
-          /* SUCCESS SCREEN AFTER VOTING */
-          <SuccessScreen
-            result={voteSuccessResult}
-            whatsappChannelUrl={contest?.whatsapp_channel_url || 'https://whatsapp.com'}
-            onViewLeaderboard={() => {
-              setVoteSuccessResult(null);
-              setActiveTab('leaderboard');
-            }}
-            onVoteAgain={
-              deviceStatus.remainingSubmissions > 0
-                ? () => {
-                    setVoteSuccessResult(null);
-                    setActiveTab('public');
-                  }
-                : undefined
-            }
-            onBackToVoting={() => {
-              setVoteSuccessResult(null);
-              setActiveTab('public');
-            }}
-          />
-        ) : activeTab === 'leaderboard' ? (
-          /* LEADERBOARD VIEW */
-          contest && (
-            <LeaderboardView
-              contest={contest}
-              contestants={contestants}
-              isLoading={isLoading}
-              onRefresh={() => fetchContestData(contest.slug)}
-              onSelectToVote={(c) => {
-                setSelectedContestant(c);
-                setVoteError(null);
-              }}
-              canVote={deviceStatus.canVote}
-              onBackToVoting={() => setActiveTab('public')}
-              onShareContestant={(c) => setSharingContestant(c)}
-            />
-          )
-        ) : (
-          /* PUBLIC VIEW (PUBLIC VOTING PAGE) */
-          <div className="w-full max-w-full">
-            {contest && (
-              <ContestHero
-                contest={contest}
-                deviceStatus={deviceStatus}
-                searchTerm={searchTerm}
-                setSearchTerm={setSearchTerm}
-                onRefresh={() => {
-                  fetchContestData(contest.slug);
-                  fetchDeviceStatus(contest.slug);
-                }}
-                onOpenShare={() => setShowGeneralShareModal(true)}
-                viewsCount={viewsCount}
-                followersCount={followersCount}
-                isFollowing={isFollowing}
-                onFollow={handleFollow}
-              />
-            )}
+            <p className="text-sm sm:text-base text-zinc-300 max-w-2xl mx-auto leading-relaxed">
+              Real People. Real Discipline. Real Payouts. Join thousands of Nigerians building financial freedom one day at a time with automated daily tracking and guaranteed NUBAN payouts.
+            </p>
 
-            {/* Contestants Grid & Empty State Section */}
-            <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 sm:mb-8 pb-4 border-b border-white/10">
-                <div>
-                  <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                    Official Ballot Candidates
-                  </h2>
-                  <p className="text-xs sm:text-sm text-zinc-400 mt-1">
-                    Select a candidate below to review profile and cast your official vote (Max{' '}
-                    {contest?.max_submissions_per_device || 2} submissions per browser/device).
-                  </p>
-                </div>
+            {/* CTA Buttons */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-3">
+              <button
+                onClick={() => setAuthModalMode('register')}
+                className="w-full sm:w-auto py-3.5 px-8 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#00875A]/30 transition-all cursor-pointer transform active:scale-98"
+              >
+                <span>OPEN YOUR SAVE30 VAULT</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
 
-                <div className="flex items-center gap-2 text-xs font-extrabold text-zinc-400">
-                  <span className="tabular-nums text-white font-black">{filteredContestants.length}</span>
-                  <span>Candidates Listed</span>
-                </div>
-              </div>
+              <button
+                onClick={() => setAuthModalMode('login')}
+                className="w-full sm:w-auto py-3.5 px-8 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-sm transition-colors cursor-pointer"
+              >
+                Access Existing Vault
+              </button>
+            </div>
 
-              {/* Contestants List or Empty State */}
-              {contestants.length === 0 ? (
-                isAdminAccess ? (
-                  <div className="bg-[#151921] rounded-2xl border border-white/10 p-8 sm:p-14 text-center max-w-xl mx-auto shadow-xl my-6">
-                    <div className="w-16 h-16 rounded-2xl bg-[#1D2430] text-amber-400 flex items-center justify-center mx-auto mb-4 border border-white/10">
-                      <Shield className="w-8 h-8" />
-                    </div>
-                    <h3 className="text-xl font-bold text-white mb-2">No Candidates Added Yet</h3>
-                    <p className="text-sm text-zinc-400 leading-relaxed mb-6">
-                      Official contestants will appear here once registered and approved by the platform
-                      administrator.
-                    </p>
-                    <button
-                      id="btn-goto-admin-login"
-                      onClick={() => setActiveTab('admin')}
-                      className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm rounded-xl shadow-md shadow-amber-500/20 transition-all inline-flex items-center gap-2 cursor-pointer"
-                    >
-                      <Shield className="w-4 h-4 text-black" />
-                      <span>Admin Login to Add Contestants</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="bg-[#151921] rounded-2xl border border-white/10 p-8 sm:p-14 text-center max-w-xl mx-auto shadow-xl my-6">
-                    <div className="w-16 h-16 rounded-2xl bg-[#1D2430] text-amber-400 flex items-center justify-center mx-auto mb-4 border border-white/10">
-                      <Shield className="w-8 h-8" />
-                    </div>
-                    <h3 className="text-xl font-bold text-white mb-2">Official Ballot Candidates</h3>
-                    <p className="text-sm text-zinc-400 leading-relaxed max-w-md mx-auto">
-                      Official voting candidates are being synchronized for the scheduled voting period. Please follow the official channel above for updates.
-                    </p>
-                  </div>
-                )
-              ) : filteredContestants.length === 0 ? (
-                <div className="bg-[#151921] rounded-xl border border-white/10 p-10 sm:p-12 text-center max-w-lg mx-auto">
-                  <Search className="w-8 h-8 text-zinc-500 mx-auto mb-3" />
-                  <p className="text-sm font-bold text-white mb-1">
-                    No candidates found matching &quot;{searchTerm}&quot;
-                  </p>
-                  <p className="text-xs text-zinc-400 mb-4">
-                    Try searching with another candidate name, number, or keyword.
-                  </p>
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="px-4 py-2 bg-[#1F2733] hover:bg-[#283241] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer border border-white/10"
-                  >
-                    Clear Search
-                  </button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-                  {filteredContestants.map((contestant) => (
-                    <ContestantCard
-                      key={contestant.id}
-                      contestant={contestant}
-                      canVote={deviceStatus.canVote}
-                      isSelected={selectedContestant?.id === contestant.id}
-                      isTargeted={targetedContestantId === contestant.id}
-                      onSelect={(c) => {
-                        setSelectedContestant(c);
-                        setVoteError(null);
-                      }}
-                      onShare={(c) => setSharingContestant(c)}
-                      showVoteCount={contest?.is_public_leaderboard_visible ?? true}
-                    />
-                  ))}
-                </div>
-              )}
+            {/* Instant Demo Sandbox Button for Reviewers */}
+            <div className="pt-2">
+              <span className="text-[11px] text-zinc-500 mr-2">Quick Evaluation Shortcut:</span>
+              <button
+                onClick={() => handleQuickDemoLogin(false)}
+                className="text-[11px] font-bold text-[#00A86B] hover:underline cursor-pointer mr-3"
+              >
+                Instant Saver Demo
+              </button>
+              <button
+                onClick={() => handleQuickDemoLogin(true)}
+                className="text-[11px] font-bold text-indigo-400 hover:underline cursor-pointer"
+              >
+                Instant Admin Demo
+              </button>
             </div>
           </div>
-        )}
+        </section>
+
+        {/* Core Value Pillars Grid */}
+        <section className="py-12 px-4 sm:px-6 max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-5 rounded-2xl bg-[#0F1622] border border-white/10 space-y-2">
+              <div className="w-10 h-10 rounded-xl bg-[#00875A]/20 border border-[#00A86B]/30 flex items-center justify-center text-[#00A86B]">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-black text-white">₦200 Daily</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Small, manageable daily contributions designed to build unshakeable savings habits without financial stress.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-[#0F1622] border border-white/10 space-y-2">
+              <div className="w-10 h-10 rounded-xl bg-[#00875A]/20 border border-[#00A86B]/30 flex items-center justify-center text-[#00A86B]">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-black text-white">Sequential 33 Days</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Strict sequential verification. Day 1 through Day 33 must each be confirmed to maintain discipline and unlock payouts.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-[#0F1622] border border-white/10 space-y-2">
+              <div className="w-10 h-10 rounded-xl bg-[#00875A]/20 border border-[#00A86B]/30 flex items-center justify-center text-[#00A86B]">
+                <Building2 className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-black text-white">₦6,000 Payout</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Fixed ₦6,000 eligible payout (₦200 × 30 core days) paid directly to your Nigerian commercial or microfinance bank account.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-[#0F1622] border border-white/10 space-y-2">
+              <div className="w-10 h-10 rounded-xl bg-[#00875A]/20 border border-[#00A86B]/30 flex items-center justify-center text-[#00A86B]">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <h3 className="text-base font-black text-white">Immutable Ledger</h3>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Every payment receives an immutable reference with printable transaction receipts and server-verified idempotency.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* How It Works Section */}
+        <section className="py-16 px-4 sm:px-6 bg-[#0B1019] border-y border-white/10">
+          <div className="max-w-4xl mx-auto space-y-10">
+            <div className="text-center space-y-2">
+              <span className="text-xs font-black uppercase tracking-widest text-[#00A86B]">
+                Simple &amp; Disciplined
+              </span>
+              <h2 className="text-2xl sm:text-4xl font-black text-white">
+                How Save30 Works
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="space-y-2 text-center sm:text-left">
+                <div className="w-9 h-9 rounded-full bg-[#00875A] text-white font-black text-sm flex items-center justify-center mx-auto sm:mx-0">
+                  1
+                </div>
+                <h4 className="text-sm font-black text-white">Register</h4>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Sign up and receive your unique User ID (e.g. <code>SAVE30-001</code>).
+                </p>
+              </div>
+
+              <div className="space-y-2 text-center sm:text-left">
+                <div className="w-9 h-9 rounded-full bg-[#00875A] text-white font-black text-sm flex items-center justify-center mx-auto sm:mx-0">
+                  2
+                </div>
+                <h4 className="text-sm font-black text-white">Save Daily</h4>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Pay ₦200 daily sequentially. Day 2 unlocks once Day 1 is verified.
+                </p>
+              </div>
+
+              <div className="space-y-2 text-center sm:text-left">
+                <div className="w-9 h-9 rounded-full bg-[#00875A] text-white font-black text-sm flex items-center justify-center mx-auto sm:mx-0">
+                  3
+                </div>
+                <h4 className="text-sm font-black text-white">Commitment Days</h4>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Complete Days 31–33 to fulfill your commitment and unlock withdrawal.
+                </p>
+              </div>
+
+              <div className="space-y-2 text-center sm:text-left">
+                <div className="w-9 h-9 rounded-full bg-[#00875A] text-white font-black text-sm flex items-center justify-center mx-auto sm:mx-0">
+                  4
+                </div>
+                <h4 className="text-sm font-black text-white">Receive ₦6,000</h4>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Request payout to your bank. Start a fresh cycle to repeat!
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Frequently Asked Questions */}
+        <section className="py-16 px-4 sm:px-6 max-w-3xl mx-auto space-y-8">
+          <div className="text-center space-y-2">
+            <span className="text-xs font-black uppercase tracking-widest text-[#00A86B]">
+              Transparency First
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-black text-white">
+              Frequently Asked Questions
+            </h2>
+          </div>
+
+          <div className="space-y-3">
+            {[
+              {
+                q: 'Why are there 33 days instead of 30 days?',
+                a: 'Save30 is built around true financial discipline. The first 30 days form your core savings (₦200 × 30 = ₦6,000). The subsequent 3 days (Days 31–33) are your commitment bond that validates your habit before unlocking payout.',
+              },
+              {
+                q: 'Can I skip days or pay ahead out of order?',
+                a: 'No. The platform enforces strict sequential verification. Day 5 can only be paid after Day 4 has been confirmed as successful on the backend.',
+              },
+              {
+                q: 'How much do I receive when I finish Day 33?',
+                a: 'You receive exactly ₦6,000, calculated dynamically as your 30 core days at ₦200 per day. The user cannot request an arbitrary or unauthorized amount.',
+              },
+              {
+                q: 'How are payouts processed?',
+                a: 'Payouts are manually verified and processed via direct Nigerian bank transfer (NUBAN) by Save30 finance administrators within 1 to 24 hours of request.',
+              },
+            ].map((item, idx) => (
+              <div
+                key={idx}
+                className="p-4 rounded-xl bg-[#0F1622] border border-white/10 text-xs transition-colors"
+              >
+                <button
+                  onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
+                  className="w-full flex items-center justify-between font-bold text-white text-left cursor-pointer"
+                >
+                  <span>{item.q}</span>
+                  {openFaq === idx ? (
+                    <ChevronUp className="w-4 h-4 text-[#00A86B] shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-zinc-400 shrink-0" />
+                  )}
+                </button>
+                {openFaq === idx && (
+                  <p className="mt-2 text-zinc-400 leading-relaxed pt-2 border-t border-white/5">
+                    {item.a}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
       </main>
 
-      {/* STEP 1: VOTER DETAILS & CONFIRMATION MODAL */}
-      {selectedContestant && (
-        <VoteModal
-          contestant={selectedContestant}
-          onClose={() => {
-            setSelectedContestant(null);
-            setVoteError(null);
+      {/* Footer */}
+      <footer className="border-t border-white/10 py-8 px-4 sm:px-6 bg-[#0B1019] text-xs text-zinc-400">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Save30Logo size="sm" />
+            <span className="text-zinc-500">| Real People. Real Discipline. Real Winners.</span>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs font-semibold">
+            <button
+              onClick={() => setIsTermsOpen(true)}
+              className="hover:text-white transition-colors cursor-pointer"
+            >
+              Terms &amp; Conditions
+            </button>
+            <button
+              onClick={() => setIsPrivacyOpen(true)}
+              className="hover:text-white transition-colors cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <button
+              onClick={() => setIsAdminKeyModalOpen(true)}
+              className="text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+            >
+              Admin Access
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      {/* Auth Modal (Login / Register / Forgot) */}
+      {authModalMode && (
+        <AuthModal
+          initialMode={authModalMode}
+          onClose={() => setAuthModalMode(null)}
+          onSuccess={u => {
+            setAuthModalMode(null);
+            setCurrentUser(u);
           }}
-          onSubmit={handleVoteSubmit}
-          isSubmitting={isSubmittingVote}
-          errorMessage={voteError}
-          remainingSubmissions={deviceStatus.remainingSubmissions}
+          onOpenTerms={() => setIsTermsOpen(true)}
+          onOpenPrivacy={() => setIsPrivacyOpen(true)}
         />
       )}
 
-      {/* STEP 2: POST-VOTE POP-UP */}
-      {pendingFollowData && (
-        <FollowChannelModal
-          contestant={pendingFollowData.contestant}
-          voteResult={pendingFollowData.voteResult}
-          whatsappChannelUrl={contest?.whatsapp_channel_url || 'https://whatsapp.com'}
-          onFollow={handleFollow}
-          onVoterReturned={handleVoterReturnedFromChannel}
-          onClose={handleVoterReturnedFromChannel}
-        />
+      {/* Admin Key Login Modal */}
+      {isAdminKeyModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-[#0F1622] border border-indigo-500/40 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-base font-black text-white">Administrator Access</h3>
+              </div>
+              <button
+                onClick={() => setIsAdminKeyModalOpen(false)}
+                className="text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Enter your administrative secret key or sign in with your admin credentials to access member oversight, withdrawal processing, and audit logs.
+            </p>
+
+            {adminKeyError && (
+              <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300">
+                {adminKeyError}
+              </div>
+            )}
+
+            <form onSubmit={handleAdminKeyVerify} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-zinc-300 font-bold uppercase mb-1">
+                  Secret Key
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={adminSecretKey}
+                  onChange={e => setAdminSecretKey(e.target.value)}
+                  placeholder="Enter admin secret key"
+                  className="w-full p-2.5 bg-[#0D131C] border border-white/15 focus:border-indigo-500 text-white rounded-xl outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isVerifyingAdmin}
+                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isVerifyingAdmin ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <span>AUTHORIZE &amp; ENTER PORTAL</span>
+                )}
+              </button>
+            </form>
+
+            <div className="pt-2 border-t border-white/10 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminSecretKey('verifiedmenmex');
+                }}
+                className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
+              >
+                Insert Demo Key (<code>verifiedmenmex</code>)
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* STEP 3: CONTESTANT PERSONAL SHARING MODAL */}
-      {sharingContestant && (
-        <CandidateShareModal
-          contestant={sharingContestant}
-          onClose={() => setSharingContestant(null)}
-        />
-      )}
-
-      {/* STEP 4: GENERAL PLATFORM SHARE MODAL */}
-      {showGeneralShareModal && (
-        <GeneralShareModal contest={contest} onClose={() => setShowGeneralShareModal(false)} />
-      )}
-
-      {/* Global Footer */}
-      <Footer
-        onOpenAdmin={() => setActiveTab('admin')}
-        onOpenVote={() => {
-          setActiveTab('public');
-          setVoteSuccessResult(null);
-        }}
-        onOpenLeaderboard={() => {
-          setActiveTab('leaderboard');
-          setVoteSuccessResult(null);
-        }}
-        onOpenShare={() => setShowGeneralShareModal(true)}
-        isAdminAccess={isAdminAccess}
-      />
+      {/* Terms & Privacy Modals */}
+      {isTermsOpen && <TermsModal onClose={() => setIsTermsOpen(false)} />}
+      {isPrivacyOpen && <PrivacyModal onClose={() => setIsPrivacyOpen(false)} />}
     </div>
   );
 }

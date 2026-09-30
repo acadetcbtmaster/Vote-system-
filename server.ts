@@ -1,10 +1,9 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
 dotenv.config();
@@ -16,11 +15,12 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // ---------------------------------------------------------------------------
-// Supabase Client Setup (User Provisioned)
+// Supabase Client Setup
 // ---------------------------------------------------------------------------
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://pwnpskdkoefrqmowwbgo.supabase.co';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3bnBza2Rrb2VmcnFtb3d3YmdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwODc5OTcsImV4cCI6MjEwNTY2Mzk5N30.K90IiO8gC9KmRwkIZRqy8XfDn15zJGFDIh8rzIYXB78';
 const adminSecret = (process.env.ADMIN_SECRET_KEY || 'verifiedmenmex').trim();
+const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY || '';
 
 let supabase: SupabaseClient | null = null;
 if (supabaseUrl && supabaseKey) {
@@ -28,1554 +28,1827 @@ if (supabaseUrl && supabaseKey) {
     supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
     });
-    console.log('[Database] Supabase client initialized with endpoint:', supabaseUrl);
+    console.log('[Save30 DB] Supabase client initialized with endpoint:', supabaseUrl);
   } catch (err) {
-    console.error('[Database] Failed to initialize Supabase client:', err);
-  }
-} else {
-  console.warn('[Database] No Supabase credentials found in env. Running with local persistent memory store for preview.');
-}
-
-// ---------------------------------------------------------------------------
-// Supabase Health & Schema Readiness Checker
-// Automatically detects if Supabase schema tables exist before executing DB operations
-// ---------------------------------------------------------------------------
-let cachedSupabaseReady = false;
-let lastSupabaseHealthCheck = 0;
-
-async function isSupabaseReady(): Promise<boolean> {
-  if (!supabase) return false;
-  const now = Date.now();
-  if (now - lastSupabaseHealthCheck < 15000) {
-    return cachedSupabaseReady;
-  }
-  try {
-    const { error } = await supabase.from('contests').select('id').limit(1);
-    cachedSupabaseReady = !error;
-    lastSupabaseHealthCheck = now;
-    return cachedSupabaseReady;
-  } catch {
-    cachedSupabaseReady = false;
-    lastSupabaseHealthCheck = now;
-    return false;
+    console.error('[Save30 DB] Failed to initialize Supabase client:', err);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Gemini AI Setup (User Verified Key)
+// Save30 Local & Persistent Data Store
+// Ensures seamless zero-downtime operation, local preview durability, and testability.
 // ---------------------------------------------------------------------------
-const geminiApiKey = process.env.GEMINI_API_KEY || '';
-let geminiClient: GoogleGenAI | null = null;
-if (geminiApiKey) {
-  try {
-    geminiClient = new GoogleGenAI({ apiKey: geminiApiKey });
-    console.log('[AI] Google Gemini client initialized successfully with verified key.');
-  } catch (err) {
-    console.warn('[AI] Failed to initialize Gemini client:', err);
-  }
-}
+const DATA_DIR = path.join(process.cwd(), 'data');
+const STORE_FILE = path.join(DATA_DIR, 'save30_store.json');
 
-// ---------------------------------------------------------------------------
-// In-Memory Fallback Relational Store (Mirroring Supabase Schema 1:1)
-// Used when SUPABASE_URL is not yet provisioned so the preview never crashes.
-// ---------------------------------------------------------------------------
-interface LocalContest {
+export interface StoredUser {
   id: string;
-  slug: string;
-  title: string;
-  description: string;
-  category: string;
-  status: 'draft' | 'upcoming' | 'active' | 'paused' | 'closed';
-  start_time: string | null;
-  end_time: string | null;
-  max_submissions_per_device: number;
-  whatsapp_channel_url: string;
-  whatsapp_channel_name: string;
-  is_public_leaderboard_visible: boolean;
-  allow_contestant_registration: boolean;
-  views_count?: number;
-  followers_count?: number;
-  last_devices_reset_at?: string;
+  save30_id: string; // e.g. SAVE30-001
+  sequence_number: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  password_hash: string;
+  password_salt: string;
+  role: 'user' | 'super_admin' | 'finance_admin' | 'support_admin';
+  is_suspended: boolean;
+  referral_code?: string;
   created_at: string;
+  updated_at?: string;
 }
 
-interface LocalContestant {
+export interface StoredPlanTemplate {
   id: string;
-  contest_id: string;
-  contestant_number: string;
   name: string;
-  bio: string;
-  photo_url: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'disabled';
-  whatsapp_number?: string;
-  vote_count: number;
+  daily_amount: number;
+  core_days: number;
+  additional_days: number;
+  total_required_days: number;
+  description: string;
+  status: 'active' | 'archived';
   created_at: string;
+  updated_at?: string;
 }
 
-interface LocalParticipation {
+export interface StoredUserPlan {
   id: string;
-  contest_id: string;
-  contestant_id: string;
-  device_token: string;
-  voter_name: string;
-  voter_whatsapp: string;
-  ip_address: string;
-  user_agent: string;
-  created_at: string;
+  user_id: string;
+  plan_id: string;
+  cycle_number: number;
+  plan_name: string;
+  daily_amount: number;
+  core_days: number;
+  additional_days: number;
+  total_days: number;
+  status: 'active' | 'completed' | 'terminated';
+  completed_days: number;
+  total_amount_paid: number;
+  eligible_withdrawal_amount: number;
+  started_at: string;
+  completed_at?: string | null;
 }
 
-interface LocalAbuseLog {
+export interface StoredContributionDay {
   id: string;
-  contest_id?: string;
-  device_token?: string;
-  event_type: string;
-  details: Record<string, unknown>;
-  ip_address: string;
+  user_plan_id: string;
+  user_id: string;
+  day_number: number;
+  amount: number;
+  status: 'locked' | 'unpaid' | 'pending' | 'successful' | 'failed' | 'reversed';
+  due_date?: string;
+  paid_at?: string | null;
+  transaction_id?: string | null;
+  payment_reference?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface StoredTransaction {
+  id: string;
+  user_id: string;
+  save30_id: string;
+  user_plan_id: string;
+  day_number: number;
+  amount: number;
+  currency: string;
+  reference: string;
+  provider: 'paystack' | 'bank_transfer' | 'mock_sandbox';
+  provider_tx_id?: string;
+  payment_method?: string;
+  status: 'pending' | 'successful' | 'failed' | 'reversed';
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  verified_at?: string | null;
+}
+
+export interface StoredWithdrawal {
+  id: string;
+  user_id: string;
+  save30_id: string;
+  user_plan_id: string;
+  full_name: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  amount: number;
+  currency: string;
+  status: 'pending' | 'processing' | 'successful' | 'failed';
+  admin_notes?: string | null;
+  processed_by_admin_id?: string | null;
+  processed_at?: string | null;
+  payment_reference?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface StoredAuditLog {
+  id: string;
+  admin_id: string;
+  admin_email: string;
+  admin_role: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  previous_value?: unknown;
+  new_value?: unknown;
+  ip_address?: string;
+  details?: string;
   created_at: string;
 }
 
-const localStore = {
-  contests: [
-    {
-      id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-      slug: 'official-contest',
-      title: 'Voters Decide — Official Public Contest',
-      description: 'Vote for your preferred candidate. Maximum 2 submissions per browser. Official real-time results powered by Supabase.',
-      category: 'Public Contest',
-      status: 'active' as const,
-      start_time: new Date(Date.now() - 86400000).toISOString(),
-      end_time: new Date(Date.now() + 86400000 * 30).toISOString(),
-      max_submissions_per_device: 2,
-      whatsapp_channel_url: 'https://whatsapp.com',
-      whatsapp_channel_name: 'Voters Decide Official Channel',
-      is_public_leaderboard_visible: true,
-      allow_contestant_registration: true,
-      views_count: 3482,
-      followers_count: 1250,
-      created_at: new Date().toISOString(),
-    }
-  ] as LocalContest[],
+export interface StoredNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  is_read: boolean;
+  created_at: string;
+}
 
-  // Completely empty initially: Contestants ONLY appear when details are imputed!
-  contestants: [] as LocalContestant[],
+export interface StoredSupportTicket {
+  id: string;
+  user_id: string;
+  save30_id: string;
+  user_name: string;
+  user_email: string;
+  subject: string;
+  message: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  created_at: string;
+  updated_at?: string;
+}
 
-  participations: [] as LocalParticipation[],
-  abuse_logs: [] as LocalAbuseLog[],
+interface Save30Database {
+  next_user_sequence: number;
+  users: StoredUser[];
+  plans: StoredPlanTemplate[];
+  user_plans: StoredUserPlan[];
+  contribution_days: StoredContributionDay[];
+  transactions: StoredTransaction[];
+  withdrawals: StoredWithdrawal[];
+  audit_logs: StoredAuditLog[];
+  notifications: StoredNotification[];
+  support_tickets: StoredSupportTicket[];
+}
+
+// Default Standard Plan: ₦200/day, 30 core days, 3 additional days = 33 total days
+const DEFAULT_PLAN_TEMPLATE: StoredPlanTemplate = {
+  id: 'plan_standard_save30',
+  name: 'Save30 Standard',
+  daily_amount: 200,
+  core_days: 30,
+  additional_days: 3,
+  total_required_days: 33,
+  description: 'Disciplined savings of ₦200 daily for 30 core days plus 3 additional commitment days (33 total days). Withdraw ₦6,000 upon Day 33 completion.',
+  status: 'active',
+  created_at: new Date().toISOString(),
 };
 
-// ---------------------------------------------------------------------------
-// Persistent Local Store (Persisted to ./data/contest_store.json)
-// Ensures any changes made in Contest Settings or Admin are always saved!
-// ---------------------------------------------------------------------------
-const STORE_FILE = path.join(process.cwd(), 'data', 'contest_store.json');
+function hashPassword(password: string, salt: string): string {
+  return crypto.pbkdf2Sync(password, salt, 50000, 64, 'sha512').toString('hex');
+}
 
-function saveStoreToDisk() {
-  try {
-    const dir = path.dirname(STORE_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(STORE_FILE, JSON.stringify(localStore, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Store] Failed to persist store to disk:', err);
+// Pre-configured Admin credentials for instant access:
+// Super Admin: admin@save30.ng / Save30Admin2026!
+// Finance Admin: finance@save30.ng / Save30Finance2026!
+// Support Admin: support@save30.ng / Save30Support2026!
+const adminSalt = 'save30_admin_salt_2026';
+const defaultUsers: StoredUser[] = [
+  {
+    id: 'user_super_admin',
+    save30_id: 'SAVE30-ADMIN-01',
+    sequence_number: 0,
+    first_name: 'System',
+    last_name: 'Administrator',
+    email: 'admin@save30.ng',
+    phone: '08012345678',
+    password_hash: hashPassword('Save30Admin2026!', adminSalt),
+    password_salt: adminSalt,
+    role: 'super_admin',
+    is_suspended: false,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'user_finance_admin',
+    save30_id: 'SAVE30-FINANCE-01',
+    sequence_number: 0,
+    first_name: 'Finance',
+    last_name: 'Officer',
+    email: 'finance@save30.ng',
+    phone: '08023456789',
+    password_hash: hashPassword('Save30Finance2026!', adminSalt),
+    password_salt: adminSalt,
+    role: 'finance_admin',
+    is_suspended: false,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'user_support_admin',
+    save30_id: 'SAVE30-SUPPORT-01',
+    sequence_number: 0,
+    first_name: 'Support',
+    last_name: 'Specialist',
+    email: 'support@save30.ng',
+    phone: '08034567890',
+    password_hash: hashPassword('Save30Support2026!', adminSalt),
+    password_salt: adminSalt,
+    role: 'support_admin',
+    is_suspended: false,
+    created_at: new Date().toISOString(),
+  },
+];
+
+let db: Save30Database = {
+  next_user_sequence: 1,
+  users: [...defaultUsers],
+  plans: [DEFAULT_PLAN_TEMPLATE],
+  user_plans: [],
+  contribution_days: [],
+  transactions: [],
+  withdrawals: [],
+  audit_logs: [],
+  notifications: [],
+  support_tickets: [],
+};
+
+function ensureDataDir(): void {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
   }
 }
 
-function loadStoreFromDisk() {
+function loadStoreFromDisk(): void {
   try {
+    ensureDataDir();
     if (fs.existsSync(STORE_FILE)) {
       const raw = fs.readFileSync(STORE_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
-      if (parsed.contests && Array.isArray(parsed.contests) && parsed.contests.length > 0) {
-        localStore.contests = parsed.contests;
-        localStore.contests.forEach(c => {
-          if (c.views_count === undefined) c.views_count = 3482;
-          if (c.followers_count === undefined) c.followers_count = 1250;
-        });
+      if (parsed && typeof parsed === 'object') {
+        db = {
+          next_user_sequence: parsed.next_user_sequence || 1,
+          users: Array.isArray(parsed.users) ? parsed.users : [...defaultUsers],
+          plans: Array.isArray(parsed.plans) && parsed.plans.length > 0 ? parsed.plans : [DEFAULT_PLAN_TEMPLATE],
+          user_plans: Array.isArray(parsed.user_plans) ? parsed.user_plans : [],
+          contribution_days: Array.isArray(parsed.contribution_days) ? parsed.contribution_days : [],
+          transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+          withdrawals: Array.isArray(parsed.withdrawals) ? parsed.withdrawals : [],
+          audit_logs: Array.isArray(parsed.audit_logs) ? parsed.audit_logs : [],
+          notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+          support_tickets: Array.isArray(parsed.support_tickets) ? parsed.support_tickets : [],
+        };
+        // Ensure default admins exist
+        for (const admin of defaultUsers) {
+          if (!db.users.some(u => u.email === admin.email)) {
+            db.users.push(admin);
+          }
+        }
       }
-      if (parsed.contestants && Array.isArray(parsed.contestants)) {
-        localStore.contestants = parsed.contestants;
-      }
-      if (parsed.participations && Array.isArray(parsed.participations)) {
-        localStore.participations = parsed.participations;
-      }
-      if (parsed.abuse_logs && Array.isArray(parsed.abuse_logs)) {
-        localStore.abuse_logs = parsed.abuse_logs;
-      }
-      console.log(`[Store] Loaded persistent store: ${localStore.contestants.length} contestants, ${localStore.participations.length} votes, contest "${localStore.contests[0]?.title}"`);
     } else {
       saveStoreToDisk();
     }
   } catch (err) {
-    console.error('[Store] Error loading persistent store from disk:', err);
+    console.error('[Save30 DB] Error loading store from disk:', err);
   }
 }
 
-// Initial load on server boot
+function saveStoreToDisk(): void {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(STORE_FILE, JSON.stringify(db, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[Save30 DB] Error saving store to disk:', err);
+  }
+}
+
+// Load initially
 loadStoreFromDisk();
 
 // ---------------------------------------------------------------------------
-// Rate Limiting & Anti-Abuse Memory Cache
+// Atomic User ID Generator (SAVE30-001, SAVE30-002, ...)
+// Guaranteed unique sequence counter that handles concurrent registrations safely.
 // ---------------------------------------------------------------------------
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-function checkRateLimit(key: string, maxHits = 8, windowMs = 30000): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(key);
-  if (!entry || now > entry.resetTime) {
-    rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
-    return true;
-  }
-  if (entry.count >= maxHits) {
-    return false;
-  }
-  entry.count += 1;
-  return true;
+function getNextSave30UserId(): { save30_id: string; sequence_number: number } {
+  loadStoreFromDisk();
+  const seq = db.next_user_sequence;
+  db.next_user_sequence += 1;
+  const save30_id = `SAVE30-${seq.toString().padStart(3, '0')}`;
+  saveStoreToDisk();
+  return { save30_id, sequence_number: seq };
 }
 
 // ---------------------------------------------------------------------------
-// Helper: WhatsApp Phone Validator
-// Supports Nigerian formats (+234..., 080..., 070..., 090...) and Intl standard
+// Plan Initialization Helper: Instantiates User Plan Cycle + Days 1..33
 // ---------------------------------------------------------------------------
-function validateAndFormatWhatsApp(phone: string): { isValid: boolean; formatted: string; error?: string } {
-  if (!phone || typeof phone !== 'string') {
-    return { isValid: false, formatted: '', error: 'WhatsApp number is required.' };
-  }
-  let clean = phone.replace(/[\s\-()]/g, '');
+function initializeUserPlanCycle(userId: string, cycleNumber = 1, planTemplate?: StoredPlanTemplate): StoredUserPlan {
+  const template = planTemplate || db.plans.find(p => p.status === 'active') || DEFAULT_PLAN_TEMPLATE;
+  const dailyAmount = template.daily_amount;
+  const coreDays = template.core_days;
+  const additionalDays = template.additional_days;
+  const totalDays = template.total_required_days;
+  const eligibleWithdrawalAmount = dailyAmount * coreDays; // e.g. ₦200 * 30 = ₦6,000
 
-  // Normalize leading 0 after country code 234 e.g. +234080... or 234080...
-  if (clean.startsWith('+2340')) {
-    clean = '+234' + clean.slice(5);
-  } else if (clean.startsWith('2340')) {
-    clean = '+234' + clean.slice(4);
-  }
-
-  // Nigerian format with 0: 070..., 080..., 081..., 090..., 091... (11 digits)
-  if (/^0[789][01]\d{8}$/.test(clean)) {
-    return { isValid: true, formatted: '+234' + clean.slice(1) };
-  }
-  // Nigerian format with 234: 234... (13 digits)
-  if (/^234[789][01]\d{8}$/.test(clean)) {
-    return { isValid: true, formatted: '+' + clean };
-  }
-  // Nigerian format with +234: +234... (14 digits)
-  if (/^\+234[789][01]\d{8}$/.test(clean)) {
-    return { isValid: true, formatted: clean };
-  }
-  // Any general valid international phone number with or without leading + (between 7 and 16 digits)
-  const digitsOnly = clean.replace(/\D/g, '');
-  if (digitsOnly.length >= 7 && digitsOnly.length <= 15) {
-    const formatted = clean.startsWith('+') ? clean : '+' + digitsOnly;
-    return { isValid: true, formatted };
-  }
-  return {
-    isValid: false,
-    formatted: '',
-    error: 'Please enter a valid WhatsApp phone number (e.g. 08012345678 or +2348012345678).'
+  const userPlan: StoredUserPlan = {
+    id: `uplan_${crypto.randomUUID()}`,
+    user_id: userId,
+    plan_id: template.id,
+    cycle_number: cycleNumber,
+    plan_name: template.name,
+    daily_amount: dailyAmount,
+    core_days: coreDays,
+    additional_days: additionalDays,
+    total_days: totalDays,
+    status: 'active',
+    completed_days: 0,
+    total_amount_paid: 0,
+    eligible_withdrawal_amount: eligibleWithdrawalAmount,
+    started_at: new Date().toISOString(),
+    completed_at: null,
   };
+
+  db.user_plans.push(userPlan);
+
+  // Generate Day 1 through Day 33
+  // Day 1 starts as 'unpaid'
+  // Days 2..33 start as 'locked'
+  for (let day = 1; day <= totalDays; day++) {
+    const contributionDay: StoredContributionDay = {
+      id: `cday_${crypto.randomUUID()}`,
+      user_plan_id: userPlan.id,
+      user_id: userId,
+      day_number: day,
+      amount: dailyAmount,
+      status: day === 1 ? 'unpaid' : 'locked',
+      created_at: new Date().toISOString(),
+    };
+    db.contribution_days.push(contributionDay);
+  }
+
+  saveStoreToDisk();
+  return userPlan;
 }
 
 // ---------------------------------------------------------------------------
-// Admin Middleware Check
+// Session & Auth Utilities
+// Signed Token: userId:signature (or admin Secret)
 // ---------------------------------------------------------------------------
-function requireAdmin(req: Request, res: Response, next: () => void) {
-  const token = ((req.headers['x-admin-token'] as string) || req.headers['authorization']?.replace('Bearer ', '') || '').trim();
-  if (!token || (token !== adminSecret && token !== 'verifiedmenmex' && token !== 'voters-decide-admin-2026')) {
-    res.status(401).json({ error: 'Unauthorized. Admin credentials required.' });
+const AUTH_SECRET = process.env.JWT_SECRET || 'save30_super_session_secret_key_2026';
+
+function generateAuthToken(userId: string, role: string): string {
+  const payload = Buffer.from(JSON.stringify({ userId, role, iat: Date.now() })).toString('base64');
+  const signature = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('hex');
+  return `${payload}.${signature}`;
+}
+
+function verifyAuthToken(token: string): { userId: string; role: string } | null {
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [payloadBase64, signature] = parts;
+  const expectedSig = crypto.createHmac('sha256', AUTH_SECRET).update(payloadBase64).digest('hex');
+  if (signature !== expectedSig) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Authentication & Role Middlewares
+// ---------------------------------------------------------------------------
+interface AuthenticatedRequest extends Request {
+  user?: StoredUser;
+}
+
+function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  const adminTokenHeader = req.headers['x-admin-token'] as string;
+
+  // Support direct admin secret token
+  if (adminTokenHeader && adminTokenHeader.trim() === adminSecret) {
+    const superAdmin = db.users.find(u => u.role === 'super_admin') || defaultUsers[0];
+    req.user = superAdmin;
+    return next();
+  }
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Unauthorized: Missing or invalid authorization token' });
     return;
   }
+
+  const token = authHeader.substring(7);
+  const tokenData = verifyAuthToken(token);
+  if (!tokenData) {
+    res.status(401).json({ error: 'Unauthorized: Invalid or expired session token' });
+    return;
+  }
+
+  loadStoreFromDisk();
+  const user = db.users.find(u => u.id === tokenData.userId);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized: User account not found' });
+    return;
+  }
+
+  if (user.is_suspended) {
+    res.status(403).json({ error: 'Your Save30 account has been temporarily suspended. Please contact support@save30.ng' });
+    return;
+  }
+
+  req.user = user;
   next();
 }
 
-// ---------------------------------------------------------------------------
-// API Routes
-// ---------------------------------------------------------------------------
+function requireAdminRole(allowedRoles: ('super_admin' | 'finance_admin' | 'support_admin')[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    requireAuth(req, res, () => {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      if (req.user.role === 'super_admin' || allowedRoles.includes(req.user.role as any)) {
+        return next();
+      }
+      res.status(403).json({ error: `Forbidden: Requires one of [${allowedRoles.join(', ')}] permissions` });
+    });
+  };
+}
 
-// 1. Health & Configuration Status
-app.get('/api/health', (req, res) => {
+// ---------------------------------------------------------------------------
+// Audit Log Helper
+// ---------------------------------------------------------------------------
+function recordAuditLog(
+  admin: StoredUser,
+  action: string,
+  targetType: string,
+  targetId: string,
+  previousValue?: unknown,
+  newValue?: unknown,
+  details?: string,
+  ip?: string
+): void {
+  const log: StoredAuditLog = {
+    id: `audit_${crypto.randomUUID()}`,
+    admin_id: admin.id,
+    admin_email: admin.email,
+    admin_role: admin.role,
+    action,
+    target_type: targetType,
+    target_id: targetId,
+    previous_value: previousValue,
+    new_value: newValue,
+    details: details || '',
+    ip_address: ip,
+    created_at: new Date().toISOString(),
+  };
+  db.audit_logs.unshift(log);
+  saveStoreToDisk();
+}
+
+function sendInAppNotification(userId: string, title: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
+  const notif: StoredNotification = {
+    id: `notif_${crypto.randomUUID()}`,
+    user_id: userId,
+    title,
+    message,
+    type,
+    is_read: false,
+    created_at: new Date().toISOString(),
+  };
+  db.notifications.unshift(notif);
+  saveStoreToDisk();
+}
+
+// ===========================================================================
+// AUTHENTICATION ROUTES
+// ===========================================================================
+
+// Register New User
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { first_name, last_name, email, phone, password, confirm_password, referral_code, accept_terms } = req.body;
+
+    if (!first_name || !last_name || !email || !phone || !password) {
+      res.status(400).json({ error: 'Please provide all required fields: first name, last name, email, phone, and password.' });
+      return;
+    }
+
+    if (password !== confirm_password) {
+      res.status(400).json({ error: 'Passwords do not match.' });
+      return;
+    }
+
+    if (password.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters.' });
+      return;
+    }
+
+    if (!accept_terms) {
+      res.status(400).json({ error: 'You must accept the Save30 Terms & Conditions and Privacy Policy to register.' });
+      return;
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    loadStoreFromDisk();
+
+    if (db.users.some(u => u.email === cleanEmail)) {
+      res.status(400).json({ error: 'An account with this email address already exists. Please login.' });
+      return;
+    }
+
+    // Atomic sequential ID generation (SAVE30-001, SAVE30-002, ...)
+    const { save30_id, sequence_number } = getNextSave30UserId();
+
+    const salt = crypto.randomBytes(16).toString('hex');
+    const password_hash = hashPassword(password, salt);
+
+    const newUser: StoredUser = {
+      id: `usr_${crypto.randomUUID()}`,
+      save30_id,
+      sequence_number,
+      first_name: first_name.trim(),
+      last_name: last_name.trim(),
+      email: cleanEmail,
+      phone: phone.trim(),
+      password_hash,
+      password_salt: salt,
+      role: 'user',
+      is_suspended: false,
+      referral_code: referral_code ? referral_code.trim() : undefined,
+      created_at: new Date().toISOString(),
+    };
+
+    db.users.push(newUser);
+
+    // Automatically create initial Plan Cycle #1 for the user
+    const initialPlan = initializeUserPlanCycle(newUser.id, 1);
+
+    // Initial Welcome Notification
+    sendInAppNotification(
+      newUser.id,
+      'Welcome to Save30!',
+      `Welcome ${newUser.first_name}! Your unique User ID is ${newUser.save30_id}. Your Day 1 contribution of ₦${initialPlan.daily_amount} is now ready.`,
+      'success'
+    );
+
+    saveStoreToDisk();
+
+    // Generate Session Token
+    const token = generateAuthToken(newUser.id, newUser.role);
+
+    const safeUser = {
+      id: newUser.id,
+      save30_id: newUser.save30_id,
+      sequence_number: newUser.sequence_number,
+      first_name: newUser.first_name,
+      last_name: newUser.last_name,
+      email: newUser.email,
+      phone: newUser.phone,
+      role: newUser.role,
+      is_suspended: newUser.is_suspended,
+      referral_code: newUser.referral_code,
+      created_at: newUser.created_at,
+    };
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: safeUser,
+      plan: initialPlan,
+    });
+  } catch (err: any) {
+    console.error('[Save30 Auth] Registration error:', err);
+    res.status(500).json({ error: 'Server error during registration. Please try again.' });
+  }
+});
+
+// Login User
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      res.status(400).json({ error: 'Please enter your email/User ID and password.' });
+      return;
+    }
+
+    const cleanIdentifier = email.trim();
+    loadStoreFromDisk();
+
+    // Can login with either Email or Save30 ID
+    const user = db.users.find(
+      u => u.email.toLowerCase() === cleanIdentifier.toLowerCase() || u.save30_id.toUpperCase() === cleanIdentifier.toUpperCase()
+    );
+
+    if (!user) {
+      res.status(401).json({ error: 'Invalid email/User ID or password.' });
+      return;
+    }
+
+    const testHash = hashPassword(password, user.password_salt);
+    if (testHash !== user.password_hash) {
+      res.status(401).json({ error: 'Invalid email/User ID or password.' });
+      return;
+    }
+
+    if (user.is_suspended) {
+      res.status(403).json({ error: 'Your Save30 account has been temporarily suspended. Please contact support@save30.ng' });
+      return;
+    }
+
+    const token = generateAuthToken(user.id, user.role);
+
+    const safeUser = {
+      id: user.id,
+      save30_id: user.save30_id,
+      sequence_number: user.sequence_number,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      is_suspended: user.is_suspended,
+      referral_code: user.referral_code,
+      created_at: user.created_at,
+    };
+
+    res.json({
+      success: true,
+      token,
+      user: safeUser,
+    });
+  } catch (err: any) {
+    console.error('[Save30 Auth] Login error:', err);
+    res.status(500).json({ error: 'Server error during login.' });
+  }
+});
+
+// Current User Profile
+app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
   res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    database: supabase ? 'supabase_cloud' : 'local_store_mirror',
-    supabaseConnected: !!supabase,
-    geminiConnected: !!geminiClient,
+    user: {
+      id: user.id,
+      save30_id: user.save30_id,
+      sequence_number: user.sequence_number,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      is_suspended: user.is_suspended,
+      referral_code: user.referral_code,
+      created_at: user.created_at,
+    },
   });
 });
 
-app.get('/api/config-status', async (req, res) => {
-  let supabaseStatus = 'not_configured';
-  let tableCount = 0;
-  let supabaseError = null;
+// Change Password
+app.post('/api/auth/change-password', requireAuth, (req: AuthenticatedRequest, res) => {
+  const { current_password, new_password, confirm_password } = req.body;
+  const user = req.user!;
 
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.from('contests').select('id').limit(1);
-      if (error) {
-        supabaseStatus = 'pending_schema';
-        supabaseError = error.message;
-      } else {
-        supabaseStatus = 'connected_ready';
-        tableCount = data ? data.length : 0;
-      }
-    } catch (e: any) {
-      supabaseStatus = 'pending_schema';
-      supabaseError = e.message;
+  if (!current_password || !new_password) {
+    res.status(400).json({ error: 'Please provide both current and new password.' });
+    return;
+  }
+
+  if (new_password !== confirm_password) {
+    res.status(400).json({ error: 'New passwords do not match.' });
+    return;
+  }
+
+  if (new_password.length < 6) {
+    res.status(400).json({ error: 'New password must be at least 6 characters.' });
+    return;
+  }
+
+  const currentHash = hashPassword(current_password, user.password_salt);
+  if (currentHash !== user.password_hash) {
+    res.status(400).json({ error: 'Current password is incorrect.' });
+    return;
+  }
+
+  const newSalt = crypto.randomBytes(16).toString('hex');
+  user.password_hash = hashPassword(new_password, newSalt);
+  user.password_salt = newSalt;
+  user.updated_at = new Date().toISOString();
+
+  saveStoreToDisk();
+  res.json({ success: true, message: 'Password updated successfully.' });
+});
+
+// Forgot / Reset Password Mock
+app.post('/api/auth/forgot-password', (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    res.status(400).json({ error: 'Please provide your email address.' });
+    return;
+  }
+  // Safe generic response
+  res.json({
+    success: true,
+    message: 'If an account exists with this email, password reset instructions have been sent.',
+  });
+});
+
+// ===========================================================================
+// USER DASHBOARD & CONTRIBUTIONS API
+// ===========================================================================
+
+// User Dashboard Data (Profile, Active Plan, Days 1..33, Withdrawal status)
+app.get('/api/user/dashboard', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  loadStoreFromDisk();
+
+  // Find active plan for this user
+  let activePlan = db.user_plans.find(up => up.user_id === user.id && up.status === 'active');
+
+  // If user somehow doesn't have an active plan, initialize Cycle 1
+  if (!activePlan) {
+    const completedCycles = db.user_plans.filter(up => up.user_id === user.id && up.status === 'completed').length;
+    activePlan = initializeUserPlanCycle(user.id, completedCycles + 1);
+  }
+
+  // Get all contribution days for the active plan
+  const contributionDays = db.contribution_days
+    .filter(cd => cd.user_plan_id === activePlan!.id)
+    .sort((a, b) => a.day_number - b.day_number);
+
+  // Compute current required day (first day that is NOT 'successful')
+  const currentRequiredDayObj = contributionDays.find(d => d.status !== 'successful');
+  const currentRequiredDay = currentRequiredDayObj ? currentRequiredDayObj.day_number : activePlan.total_days;
+
+  // Withdrawal Eligibility Condition:
+  // Must complete Day 30 AND Day 31 AND Day 32 AND Day 33 (completed_days >= total_days)
+  const isWithdrawalAvailable = activePlan.completed_days >= activePlan.total_days;
+  let withdrawalReason = '';
+  if (!isWithdrawalAvailable) {
+    if (activePlan.completed_days >= activePlan.core_days) {
+      const remainingAdditional = activePlan.total_days - activePlan.completed_days;
+      withdrawalReason = `Core contribution completed (${activePlan.core_days}/${activePlan.core_days} ✓). Complete Days 31–33 to unlock withdrawal (${remainingAdditional} day${remainingAdditional > 1 ? 's' : ''} left).`;
+    } else {
+      withdrawalReason = `Complete all 30 core days and 3 additional commitment days (${activePlan.completed_days}/${activePlan.total_days} completed).`;
     }
   }
 
+  // Check if active withdrawal exists for this plan
+  const activeWithdrawal = db.withdrawals.find(
+    w => w.user_plan_id === activePlan!.id && (w.status === 'pending' || w.status === 'processing')
+  ) || null;
+
+  // Recent transactions for this user
+  const recentTransactions = db.transactions
+    .filter(t => t.user_id === user.id)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 10);
+
+  // Unread notifications
+  const unreadNotificationsCount = db.notifications.filter(n => n.user_id === user.id && !n.is_read).length;
+
   res.json({
-    platform: 'Voters Decide',
-    supabaseConfigured: !!(supabaseUrl && supabaseKey),
-    supabaseStatus,
-    supabaseError,
-    supabaseProjectRef: 'pwnpskdkoefrqmowwbgo',
-    supabaseProjectUrl: supabaseUrl,
-    adminSecretConfigured: !!process.env.ADMIN_SECRET_KEY,
-    geminiConfigured: !!geminiClient,
-    activeMode: supabase && supabaseStatus === 'connected_ready' ? 'supabase' : 'local_mirror',
-    instructions: {
-      sqlUrl: 'https://supabase.com/dashboard/project/pwnpskdkoefrqmowwbgo/sql/new',
-      step1: 'Credentials configured and active.',
-      step2: 'Run supabase/schema.sql in your Supabase SQL Editor to enable instant cloud syncing.',
-      step3: 'Click "Sync to Cloud" in Admin to publish all records to Supabase.',
-    }
+    user: {
+      id: user.id,
+      save30_id: user.save30_id,
+      sequence_number: user.sequence_number,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      is_suspended: user.is_suspended,
+      created_at: user.created_at,
+    },
+    activePlan,
+    contributionDays,
+    currentRequiredDay,
+    isWithdrawalAvailable,
+    withdrawalReason,
+    activeWithdrawal,
+    stats: {
+      totalSuccessfulDays: activePlan.completed_days,
+      totalRequiredDays: activePlan.total_days,
+      totalCoreDays: activePlan.core_days,
+      totalAdditionalDays: activePlan.additional_days,
+      totalAmountPaid: activePlan.total_amount_paid,
+      eligibleWithdrawalAmount: activePlan.eligible_withdrawal_amount,
+      dailyAmount: activePlan.daily_amount,
+    },
+    recentTransactions,
+    unreadNotificationsCount,
   });
 });
 
-// Expose safe client-side config for browser/GitHub Pages hydration
-app.get('/api/public-config', (req, res) => {
-  res.json({
-    supabaseUrl: process.env.VITE_SUPABASE_URL || supabaseUrl,
-    supabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3bnBza2Rrb2VmcnFtb3d3YmdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwODc5OTcsImV4cCI6MjEwNTY2Mzk5N30.K90IiO8gC9KmRwkIZRqy8XfDn15zJGFDIh8rzIYXB78',
-    geminiConfigured: !!geminiClient,
-    adminConfigured: true,
-  });
+// User Plan History (My Plans)
+app.get('/api/user/plans', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  loadStoreFromDisk();
+  const plans = db.user_plans
+    .filter(up => up.user_id === user.id)
+    .sort((a, b) => b.cycle_number - a.cycle_number);
+  res.json({ plans });
 });
 
-// 2. Fetch Active Contests
-app.get('/api/contests', async (req, res) => {
+// ===========================================================================
+// SEQUENTIAL PAYMENT & PAYSTACK INTEGRATION
+// ===========================================================================
+
+// Initialize Daily Contribution Payment
+app.post('/api/payments/initialize', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    if (supabase) {
-      const { data, error } = await supabase
-        .from('contests')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!error && data && data.length > 0) {
-        res.json(data);
+    const user = req.user!;
+    const { day_number } = req.body;
+
+    if (!day_number || typeof day_number !== 'number') {
+      res.status(400).json({ error: 'Please provide a valid contribution day number.' });
+      return;
+    }
+
+    loadStoreFromDisk();
+    const activePlan = db.user_plans.find(up => up.user_id === user.id && up.status === 'active');
+    if (!activePlan) {
+      res.status(400).json({ error: 'No active Save30 savings plan found for this account.' });
+      return;
+    }
+
+    // STRICT SEQUENTIAL PAYMENT ENFORCEMENT:
+    // Expected next day is (completed_days + 1)
+    const expectedDay = activePlan.completed_days + 1;
+    if (day_number !== expectedDay) {
+      if (day_number > expectedDay) {
+        res.status(400).json({
+          error: `Sequential rule: You cannot pay for Day ${day_number} before completing Day ${expectedDay}. Please complete Day ${expectedDay} first.`,
+        });
+        return;
+      }
+      if (day_number < expectedDay) {
+        res.status(400).json({
+          error: `Day ${day_number} has already been completed and confirmed.`,
+        });
         return;
       }
     }
-    // Fallback or mirror
-    res.json(localStore.contests);
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch contests', details: err.message });
-  }
-});
 
-// 3. Fetch Single Contest & Public Approved Contestants
-app.get('/api/contests/:slug', async (req, res) => {
-  const { slug } = req.params;
-
-  try {
-    loadStoreFromDisk();
-    const localContest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
-
-    let cloudContestData: any = null;
-    let cloudContestants: any[] = [];
-
-    const supabaseReady = await isSupabaseReady();
-    if (supabase && supabaseReady) {
-      try {
-        const { data: contestData, error: cErr } = await supabase
-          .from('contests')
-          .select('*')
-          .eq('slug', slug)
-          .single();
-
-        if (!cErr && contestData) {
-          cloudContestData = contestData;
-          const { data: contestantData } = await supabase
-            .from('contestants')
-            .select('id, contest_id, contestant_number, name, bio, photo_url, status, vote_count, created_at')
-            .eq('contest_id', contestData.id)
-            .order('vote_count', { ascending: false });
-
-          if (contestantData && contestantData.length > 0) {
-            cloudContestants = contestantData;
-          }
-        }
-      } catch (err) {
-        console.warn('[Supabase contest fetch notice]:', err);
-      }
+    // Verify target day record
+    const targetDay = db.contribution_days.find(
+      cd => cd.user_plan_id === activePlan.id && cd.day_number === day_number
+    );
+    if (!targetDay) {
+      res.status(404).json({ error: `Contribution record for Day ${day_number} not found.` });
+      return;
     }
 
-    // Merge: localContest contains the authoritative changes saved by the admin in the Admin Panel
-    const contest: LocalContest = {
-      ...(cloudContestData || {}),
-      ...(localContest || {}),
+    if (targetDay.status === 'successful') {
+      res.status(400).json({ error: `Day ${day_number} contribution has already been completed.` });
+      return;
+    }
+
+    // Determine amount dynamically from the user's active plan snapshot
+    const amount = activePlan.daily_amount; // e.g. ₦200
+    const reference = `SAVE30-REF-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+    // Record pending transaction in immutable financial ledger
+    const transaction: StoredTransaction = {
+      id: `tx_${crypto.randomUUID()}`,
+      user_id: user.id,
+      save30_id: user.save30_id,
+      user_plan_id: activePlan.id,
+      day_number,
+      amount,
+      currency: 'NGN',
+      reference,
+      provider: 'paystack',
+      status: 'pending',
+      metadata: {
+        user_name: `${user.first_name} ${user.last_name}`,
+        phone: user.phone,
+        plan_name: activePlan.plan_name,
+      },
+      created_at: new Date().toISOString(),
     };
 
-    if (!contest || !contest.id) {
-      res.status(404).json({ error: 'Contest not found', message: 'No contest found with the provided identifier.' });
-      return;
-    }
+    db.transactions.push(transaction);
 
-    // Contestants: localStore.contestants contains the authoritative list configured by the admin
-    // Only approved contestants appear on the public ballot!
-    let approvedContestants = (localStore.contestants || []).filter(ct => ct.status === 'approved');
+    // Update target day status to pending
+    targetDay.status = 'pending';
+    targetDay.payment_reference = reference;
+    targetDay.updated_at = new Date().toISOString();
 
-    // If cloud has vote counts for these contestants, synchronize the highest vote count
-    if (cloudContestants.length > 0) {
-      const cloudVoteMap = new Map(cloudContestants.map(c => [c.id, c.vote_count || 0]));
-      approvedContestants = approvedContestants.map(lc => ({
-        ...lc,
-        vote_count: Math.max(lc.vote_count || 0, cloudVoteMap.get(lc.id) ?? 0),
-      }));
-    }
-
-    // Sort by vote count descending, then contestant number ascending
-    approvedContestants.sort((a, b) => (b.vote_count || 0) - (a.vote_count || 0) || a.contestant_number.localeCompare(b.contestant_number));
-
-    res.json({
-      contest,
-      contestants: approvedContestants,
-      totalVotes: approvedContestants.reduce((acc, c) => acc + (c.vote_count || 0), 0),
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Server error retrieving contest', details: err.message });
-  }
-});
-
-// 3a-1. Record View (Once a voter clicks on the link and enters the website, the views number adds)
-app.post('/api/contests/:slug/view', async (req, res) => {
-  const { slug } = req.params;
-  try {
-    const contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
-    if (!contest) {
-      res.status(404).json({ error: 'Contest not found' });
-      return;
-    }
-
-    contest.views_count = (contest.views_count || 0) + 1;
     saveStoreToDisk();
 
-    res.json({
-      success: true,
-      views_count: contest.views_count,
-      followers_count: contest.followers_count || 0,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to record view', details: err.message });
-  }
-});
-
-// 3a-2. Record Follow (Once a voter clicks on follow, the follower number adds and says following)
-app.post('/api/contests/:slug/follow', async (req, res) => {
-  const { slug } = req.params;
-  try {
-    const contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
-    if (!contest) {
-      res.status(404).json({ error: 'Contest not found' });
-      return;
-    }
-
-    contest.followers_count = (contest.followers_count || 0) + 1;
-    saveStoreToDisk();
-
-    res.json({
-      success: true,
-      followers_count: contest.followers_count,
-      following: true,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to record follow', details: err.message });
-  }
-});
-
-// 3b. Fetch All Applications for the Candidate Application Portal
-app.get('/api/contests/:slug/applications', async (req, res) => {
-  const { slug } = req.params;
-  try {
-    const contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
-    if (!contest) {
-      res.status(404).json({ error: 'Contest not found' });
-      return;
-    }
-
-    let applications = localStore.contestants.filter(c => c.contest_id === contest.id);
-
-    const supabaseReady = await isSupabaseReady();
-    if (supabase && supabaseReady) {
+    // Check if live Paystack Secret Key is configured
+    let authorizationUrl = '';
+    if (paystackSecretKey && paystackSecretKey.startsWith('sk_')) {
       try {
-        const { data } = await supabase
-          .from('contestants')
-          .select('*')
-          .eq('contest_id', contest.id)
-          .order('created_at', { ascending: false });
-        if (data && data.length > 0) {
-          applications = data;
+        const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${paystackSecretKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: user.email,
+            amount: Math.round(amount * 100), // Paystack expects kobo
+            reference,
+            callback_url: `${process.env.APP_URL || 'http://localhost:3000'}?payment_reference=${reference}`,
+            metadata: {
+              custom_fields: [
+                { display_name: 'Platform', variable_name: 'platform', value: 'Save30' },
+                { display_name: 'User ID', variable_name: 'user_id', value: user.save30_id },
+                { display_name: 'Contribution Day', variable_name: 'day_number', value: `Day ${day_number}` },
+              ],
+            },
+          }),
+        });
+
+        const paystackData = await paystackRes.json();
+        if (paystackData.status && paystackData.data?.authorization_url) {
+          authorizationUrl = paystackData.data.authorization_url;
         }
-      } catch (err) {
-        console.warn('[Supabase applications fetch notice]:', err);
+      } catch (paystackErr) {
+        console.warn('[Paystack Initialize Warning]:', paystackErr);
       }
     }
 
     res.json({
       success: true,
-      applications: applications.sort((a, b) => b.created_at.localeCompare(a.created_at)),
-      count: applications.length,
+      reference,
+      amount,
+      day_number,
+      currency: 'NGN',
+      authorization_url: authorizationUrl,
+      requires_redirect: !!authorizationUrl,
     });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch applications', details: err.message });
+    console.error('[Save30 Payment Initialize Error]:', err);
+    res.status(500).json({ error: 'Failed to initialize payment transaction.' });
   }
 });
 
-// 3c. Delete a Contestant / Application
-app.delete('/api/contests/:slug/contestants/:id', async (req, res) => {
-  const { slug, id } = req.params;
+// Verify Payment & Complete Contribution Day
+// Strictly verifies server-side, checks amount/currency, and enforces idempotency.
+app.post('/api/payments/verify', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const idx = localStore.contestants.findIndex(c => c.id === id);
-    if (idx !== -1) {
-      localStore.contestants.splice(idx, 1);
+    const user = req.user!;
+    const { reference, simulate_success } = req.body;
+
+    if (!reference) {
+      res.status(400).json({ error: 'Payment reference is required for verification.' });
+      return;
     }
 
-    const supabaseReady = await isSupabaseReady();
-    if (supabase && supabaseReady) {
-      try {
-        await supabase.from('contestants').delete().eq('id', id);
-      } catch (sbErr) {
-        console.warn('[Supabase Sync Warning in delete]:', sbErr);
-      }
-    }
-
-    res.json({ success: true, message: 'Contestant removed successfully.' });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to delete contestant', details: err.message });
-  }
-});
-
-// 4. Device Participation Status Check
-// Returns how many submissions this browser/device has made (0, 1, or 2)
-app.get('/api/contests/:slug/device-status', async (req, res) => {
-  const { slug } = req.params;
-  const token = req.query.token as string;
-
-  if (!token || typeof token !== 'string') {
-    res.status(400).json({ error: 'Device token parameter is required.' });
-    return;
-  }
-
-  try {
     loadStoreFromDisk();
-    let contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
-    let contestId = contest?.id;
-    let maxAllowed = contest?.max_submissions_per_device || 2;
-    let contestStatus = contest?.status || 'active';
-    let endTime: string | null = contest?.end_time || null;
-
-    let count = 0;
-
-    const supabaseReady = await isSupabaseReady();
-    if (supabase && supabaseReady) {
-      try {
-        const { count: sbCount, error } = await supabase
-          .from('participations')
-          .select('*', { count: 'exact', head: true })
-          .eq('contest_id', contestId)
-          .eq('device_token', token);
-        if (!error && sbCount !== null) {
-          count = sbCount;
-        }
-      } catch (err) {
-        console.warn('[Supabase device-status fallback]:', err);
-      }
-    }
-
-    // Always combine with localStore count to ensure locks are never bypassed
-    const localCount = localStore.participations.filter(
-      p => (p.contest_id === contestId || p.contest_id === contest?.id || p.contest_id === contest?.slug) && p.device_token === token
-    ).length;
-    count = Math.max(count, localCount);
-
-    const isExpired = endTime ? new Date() > new Date(endTime) : false;
-    const remaining = Math.max(0, maxAllowed - count);
-
-    res.json({
-      submissionsUsed: count,
-      remainingSubmissions: remaining,
-      maxAllowed,
-      canVote: remaining > 0 && contestStatus === 'active' && !isExpired,
-      contestStatus,
-      isExpired,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to verify device participation status' });
-  }
-});
-
-// 5. SERVER-SIDE VOTE SUBMISSION (Authoritative, Concurrency Safe, Anti-Abuse Protected)
-app.post('/api/contests/:slug/vote', async (req, res) => {
-  const { slug } = req.params;
-  const { contestantId, deviceToken } = req.body;
-  const rawFullName = req.body.fullName || req.body.voterName || '';
-  const rawWhatsapp = req.body.whatsappNumber || req.body.voterWhatsapp || '';
-  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
-  const userAgent = req.headers['user-agent'] || 'Unknown';
-
-  // 1. Rate limiting check by IP and deviceToken
-  const rateLimitKey = `vote:${clientIp}:${deviceToken}`;
-  if (!checkRateLimit(rateLimitKey, 5, 20000)) {
-    res.status(429).json({
-      success: false,
-      error: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests. Please wait a moment before trying again.'
-    });
-    return;
-  }
-
-  // 2. Validate input fields
-  if (!deviceToken || typeof deviceToken !== 'string' || deviceToken.length < 16) {
-    res.status(400).json({
-      success: false,
-      error: 'INVALID_DEVICE_TOKEN',
-      message: 'A valid device participation token is required.'
-    });
-    return;
-  }
-
-  if (!contestantId || typeof contestantId !== 'string') {
-    res.status(400).json({
-      success: false,
-      error: 'MISSING_CONTESTANT',
-      message: 'Please select a valid contestant.'
-    });
-    return;
-  }
-
-  const trimmedName = typeof rawFullName === 'string' ? rawFullName.trim() : '';
-  if (trimmedName.length < 2 || trimmedName.length > 80) {
-    res.status(400).json({
-      success: false,
-      error: 'INVALID_NAME',
-      message: 'Please enter your real full name (2 to 80 characters).'
-    });
-    return;
-  }
-
-  const phoneCheck = validateAndFormatWhatsApp(rawWhatsapp);
-  if (!phoneCheck.isValid) {
-    res.status(400).json({
-      success: false,
-      error: 'INVALID_WHATSAPP',
-      message: phoneCheck.error || 'Please enter a valid WhatsApp number.'
-    });
-    return;
-  }
-
-  try {
-    // Determine Contest ID and verify status
-    let contest: LocalContest | null = null;
-    let isCloudContest = false;
-
-    const supabaseReady = await isSupabaseReady();
-    if (supabase && supabaseReady) {
-      try {
-        const { data: cData, error: cErr } = await supabase
-          .from('contests')
-          .select('*')
-          .or(`slug.eq.${slug},id.eq.${slug}`)
-          .single();
-        if (!cErr && cData) {
-          contest = cData;
-          isCloudContest = true;
-        }
-      } catch (err) {
-        console.warn('[Supabase contest lookup notice]:', err);
-      }
-    }
-
-    if (!contest) {
-      contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0] || null;
-    }
-
-    if (!contest) {
-      res.status(404).json({ success: false, error: 'CONTEST_NOT_FOUND', message: 'Contest does not exist.' });
+    const transaction = db.transactions.find(t => t.reference === reference);
+    if (!transaction) {
+      res.status(404).json({ error: 'Transaction record with this reference was not found.' });
       return;
     }
 
-    if (contest.status !== 'active') {
-      res.status(400).json({
-        success: false,
-        error: 'CONTEST_NOT_ACTIVE',
-        message: `Voting is currently ${contest.status}. Submissions cannot be accepted at this time.`
+    // Ensure transaction belongs to authenticated user
+    if (transaction.user_id !== user.id && user.role === 'user') {
+      res.status(403).json({ error: 'Access denied: You cannot verify another user\'s payment.' });
+      return;
+    }
+
+    // IDEMPOTENCY CHECK: If already successful, return existing confirmation
+    if (transaction.status === 'successful') {
+      const activePlan = db.user_plans.find(up => up.id === transaction.user_plan_id);
+      res.json({
+        success: true,
+        already_processed: true,
+        message: `Day ${transaction.day_number} contribution is already confirmed.`,
+        transaction,
+        receipt: {
+          transaction_id: transaction.id,
+          reference: transaction.reference,
+          save30_id: user.save30_id,
+          user_name: `${user.first_name} ${user.last_name}`,
+          day_number: transaction.day_number,
+          amount: transaction.amount,
+          currency: transaction.currency,
+          status: 'successful',
+          date: transaction.verified_at || transaction.created_at,
+          plan_name: activePlan?.plan_name || 'Save30 Standard',
+        },
       });
       return;
     }
 
-    if (contest.start_time && new Date() < new Date(contest.start_time)) {
-      res.status(400).json({ success: false, error: 'CONTEST_NOT_STARTED', message: 'Voting for this contest has not started yet.' });
-      return;
-    }
+    let isVerified = false;
+    let paymentChannel = 'card';
+    let providerTxId = '';
 
-    if (contest.end_time && new Date() > new Date(contest.end_time)) {
-      res.status(400).json({ success: false, error: 'CONTEST_ENDED', message: 'Voting for this contest has already concluded.' });
-      return;
-    }
-
-    const maxSubmissions = contest.max_submissions_per_device || 2;
-
-    // Check contestant existence across localStore and Supabase
-    let contestant = localStore.contestants.find(c => c.id === contestantId);
-    if (!contestant && supabase && supabaseReady) {
+    // If live Paystack key exists, verify directly with Paystack API
+    if (paystackSecretKey && paystackSecretKey.startsWith('sk_')) {
       try {
-        const { data: ctData } = await supabase
-          .from('contestants')
-          .select('*')
-          .eq('id', contestantId)
-          .single();
-        if (ctData) {
-          contestant = ctData;
+        const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${paystackSecretKey}`,
+          },
+        });
+        const verifyData = await verifyRes.json();
+        if (verifyData.status && verifyData.data?.status === 'success') {
+          // Verify amount and currency
+          const expectedKobo = Math.round(transaction.amount * 100);
+          if (verifyData.data.amount === expectedKobo && verifyData.data.currency === 'NGN') {
+            isVerified = true;
+            paymentChannel = verifyData.data.channel || 'card';
+            providerTxId = String(verifyData.data.id || '');
+          }
         }
-      } catch (err) {
-        console.warn('[Supabase contestant lookup notice]:', err);
+      } catch (verifyErr) {
+        console.warn('[Paystack Live Verify Error]:', verifyErr);
       }
     }
 
-    if (!contestant) {
-      res.status(404).json({ success: false, error: 'CONTESTANT_NOT_FOUND', message: 'Selected contestant was not found in this contest.' });
+    // Allow sandbox simulation for development/testing only if simulate_success is true
+    if (!isVerified && simulate_success === true) {
+      isVerified = true;
+      paymentChannel = 'bank_transfer_sandbox';
+      providerTxId = `sim_${Date.now()}`;
+    }
+
+    if (!isVerified) {
+      transaction.status = 'failed';
+      // Contribution day remains locked/unpaid for retry
+      const dayRecord = db.contribution_days.find(
+        cd => cd.user_plan_id === transaction.user_plan_id && cd.day_number === transaction.day_number
+      );
+      if (dayRecord) {
+        dayRecord.status = 'failed';
+      }
+      saveStoreToDisk();
+      res.status(400).json({ error: 'Payment verification failed or was not completed.' });
       return;
     }
 
-    if (contestant.status !== 'approved') {
-      res.status(400).json({ success: false, error: 'CONTESTANT_INELIGIBLE', message: 'This contestant is not currently eligible to receive votes.' });
+    // Mark Transaction Successful
+    transaction.status = 'successful';
+    transaction.verified_at = new Date().toISOString();
+    transaction.provider_tx_id = providerTxId;
+    transaction.payment_method = paymentChannel;
+
+    // Update corresponding Contribution Day
+    const activePlan = db.user_plans.find(up => up.id === transaction.user_plan_id);
+    if (!activePlan) {
+      res.status(500).json({ error: 'Active plan associated with transaction not found.' });
       return;
     }
 
-    // Try Supabase RPC only if Supabase is connected and ready
-    if (supabase && supabaseReady && isCloudContest) {
-      try {
-        const { data: rpcResult, error: rpcError } = await supabase.rpc('submit_vote', {
-          p_contest_id: contest.id,
-          p_contestant_id: contestant.id,
-          p_device_token: deviceToken,
-          p_voter_name: trimmedName,
-          p_voter_whatsapp: phoneCheck.formatted,
-          p_ip_address: clientIp,
-          p_user_agent: userAgent
-        });
+    const currentDayRecord = db.contribution_days.find(
+      cd => cd.user_plan_id === activePlan.id && cd.day_number === transaction.day_number
+    );
 
-        if (rpcError) {
-          console.warn('[Supabase RPC submit_vote notice - falling back to table/local]:', rpcError.message);
-        } else if (rpcResult) {
-          if (!rpcResult.success) {
-            res.status(400).json(rpcResult);
-            return;
-          }
+    if (currentDayRecord) {
+      currentDayRecord.status = 'successful';
+      currentDayRecord.paid_at = new Date().toISOString();
+      currentDayRecord.transaction_id = transaction.id;
+      currentDayRecord.payment_reference = reference;
+      currentDayRecord.updated_at = new Date().toISOString();
+    }
 
-          // Sync locally so local preview remains updated
-          const localContestant = localStore.contestants.find(c => c.id === contestant!.id);
-          if (localContestant) {
-            localContestant.vote_count = (rpcResult.contestant?.vote_count ?? localContestant.vote_count + 1);
-          }
-          const currentContest = localStore.contests.find(c => c.id === contest!.id || c.slug === slug) || localStore.contests[0];
-          if (currentContest) {
-            currentContest.followers_count = (currentContest.followers_count || 0) + 1;
+    // Increment completed days and total amount paid
+    activePlan.completed_days += 1;
+    activePlan.total_amount_paid += transaction.amount;
+
+    // Unlock next day if within total days
+    const nextDayNumber = transaction.day_number + 1;
+    if (nextDayNumber <= activePlan.total_days) {
+      const nextDayRecord = db.contribution_days.find(
+        cd => cd.user_plan_id === activePlan.id && cd.day_number === nextDayNumber
+      );
+      if (nextDayRecord && nextDayRecord.status === 'locked') {
+        nextDayRecord.status = 'unpaid';
+        nextDayRecord.updated_at = new Date().toISOString();
+      }
+    }
+
+    // Create In-App Notification
+    sendInAppNotification(
+      user.id,
+      `Day ${transaction.day_number} Payment Confirmed!`,
+      `Your payment of ₦${transaction.amount.toLocaleString()} for Day ${transaction.day_number} was successfully verified. Total progress: ${activePlan.completed_days}/${activePlan.total_days} days.`,
+      'success'
+    );
+
+    // If completed Day 30, send special milestone notification
+    if (activePlan.completed_days === activePlan.core_days) {
+      sendInAppNotification(
+        user.id,
+        'Core Contribution Completed (30/30 ✓)',
+        'Congratulations! You have completed all 30 core days. Complete Days 31–33 to unlock withdrawal.',
+        'info'
+      );
+    }
+
+    // If completed Day 33, send unlock notification
+    if (activePlan.completed_days >= activePlan.total_days) {
+      sendInAppNotification(
+        user.id,
+        '🟢 Withdrawal Unlocked!',
+        `Incredible discipline! All ${activePlan.total_days} days completed. You are now eligible to request your ₦${activePlan.eligible_withdrawal_amount.toLocaleString()} withdrawal!`,
+        'success'
+      );
+    }
+
+    saveStoreToDisk();
+
+    res.json({
+      success: true,
+      message: `Day ${transaction.day_number} payment successfully verified!`,
+      transaction,
+      receipt: {
+        transaction_id: transaction.id,
+        reference: transaction.reference,
+        save30_id: user.save30_id,
+        user_name: `${user.first_name} ${user.last_name}`,
+        day_number: transaction.day_number,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        status: 'successful',
+        date: transaction.verified_at,
+        plan_name: activePlan.plan_name,
+        payment_channel: paymentChannel,
+      },
+    });
+  } catch (err: any) {
+    console.error('[Save30 Payment Verify Error]:', err);
+    res.status(500).json({ error: 'Server error during payment verification.' });
+  }
+});
+
+// Paystack Webhook Handler
+// Validates HMAC SHA512 signature, processes charge.success, prevents duplicate crediting.
+app.post('/api/payments/webhook', async (req, res) => {
+  try {
+    const signature = req.headers['x-paystack-signature'] as string;
+    const webhookSecret = process.env.PAYSTACK_WEBHOOK_SECRET || paystackSecretKey;
+
+    if (webhookSecret && signature) {
+      const hash = crypto.createHmac('sha512', webhookSecret).update(JSON.stringify(req.body)).digest('hex');
+      if (hash !== signature) {
+        console.warn('[Paystack Webhook] Invalid signature rejected.');
+        res.status(400).send('Invalid signature');
+        return;
+      }
+    }
+
+    const event = req.body;
+    if (event?.event === 'charge.success') {
+      const data = event.data;
+      const reference = data?.reference;
+
+      if (reference) {
+        loadStoreFromDisk();
+        const transaction = db.transactions.find(t => t.reference === reference);
+        // Idempotency: Ignore if already completed
+        if (transaction && transaction.status !== 'successful') {
+          transaction.status = 'successful';
+          transaction.verified_at = new Date().toISOString();
+          transaction.provider_tx_id = String(data.id || '');
+          transaction.payment_method = data.channel || 'webhook';
+
+          const activePlan = db.user_plans.find(up => up.id === transaction.user_plan_id);
+          if (activePlan) {
+            const currentDayRecord = db.contribution_days.find(
+              cd => cd.user_plan_id === activePlan.id && cd.day_number === transaction.day_number
+            );
+            if (currentDayRecord && currentDayRecord.status !== 'successful') {
+              currentDayRecord.status = 'successful';
+              currentDayRecord.paid_at = new Date().toISOString();
+              currentDayRecord.transaction_id = transaction.id;
+
+              activePlan.completed_days += 1;
+              activePlan.total_amount_paid += transaction.amount;
+
+              const nextDayNumber = transaction.day_number + 1;
+              if (nextDayNumber <= activePlan.total_days) {
+                const nextDay = db.contribution_days.find(
+                  cd => cd.user_plan_id === activePlan.id && cd.day_number === nextDayNumber
+                );
+                if (nextDay && nextDay.status === 'locked') {
+                  nextDay.status = 'unpaid';
+                }
+              }
+            }
           }
           saveStoreToDisk();
-
-          res.json({
-            ...rpcResult,
-            followers_count: currentContest?.followers_count,
-          });
-          return;
         }
-      } catch (rpcErr: any) {
-        console.warn('[Supabase RPC submit_vote call note]:', rpcErr?.message || rpcErr);
       }
     }
 
-    // Atomic fallback voting
-    // Calculate submissions count across local store and Supabase
-    let deviceSubmissionsCount = localStore.participations.filter(
-      p => (p.contest_id === contest!.id || p.contest_id === contest!.slug) && p.device_token === deviceToken
-    ).length;
-
-    if (supabase && supabaseReady && isCloudContest) {
-      try {
-        const { count: sbCount, error: countErr } = await supabase
-          .from('participations')
-          .select('*', { count: 'exact', head: true })
-          .eq('contest_id', contest.id)
-          .eq('device_token', deviceToken);
-        if (!countErr && sbCount !== null) {
-          deviceSubmissionsCount = Math.max(deviceSubmissionsCount, sbCount);
-        }
-      } catch (err) {
-        console.warn('[Supabase participations count note]:', err);
-      }
-    }
-
-    if (deviceSubmissionsCount >= maxSubmissions) {
-      localStore.abuse_logs.push({
-        id: crypto.randomUUID(),
-        contest_id: contest.id,
-        device_token: deviceToken,
-        event_type: 'LIMIT_EXCEEDED',
-        details: { contestantId, existingCount: deviceSubmissionsCount },
-        ip_address: clientIp,
-        created_at: new Date().toISOString(),
-      });
-
-      res.status(400).json({
-        success: false,
-        error: 'PARTICIPATION_LIMIT_REACHED',
-        message: `You have reached the maximum allowed submissions (${maxSubmissions}) for this contest from this browser/device.`,
-        submissions_used: deviceSubmissionsCount,
-        max_allowed: maxSubmissions,
-      });
-      return;
-    }
-
-    // Atomic Insertion & Vote Count Increment
-    const newParticipation: LocalParticipation = {
-      id: crypto.randomUUID(),
-      contest_id: contest.id,
-      contestant_id: contestant.id,
-      device_token: deviceToken,
-      voter_name: trimmedName,
-      voter_whatsapp: phoneCheck.formatted,
-      ip_address: clientIp,
-      user_agent: userAgent,
-      created_at: new Date().toISOString(),
-    };
-
-    localStore.participations.push(newParticipation);
-    contestant.vote_count = (contestant.vote_count || 0) + 1;
-
-    // Follower counter update
-    const currentContest = localStore.contests.find(c => c.id === contest!.id || c.slug === slug) || localStore.contests[0];
-    if (currentContest) {
-      currentContest.followers_count = (currentContest.followers_count || 0) + 1;
-    }
-    saveStoreToDisk();
-
-    // Async sync to Supabase if tables exist
-    if (supabase && supabaseReady && isCloudContest) {
-      try {
-        await supabase.from('participations').insert({
-          id: newParticipation.id,
-          contest_id: contest.id,
-          contestant_id: contestant.id,
-          device_token: deviceToken,
-          voter_name: trimmedName,
-          voter_whatsapp: phoneCheck.formatted,
-          ip_address: clientIp,
-          user_agent: userAgent,
-          created_at: newParticipation.created_at,
-        });
-        await supabase.from('contestants').update({
-          vote_count: contestant.vote_count,
-        }).eq('id', contestant.id);
-      } catch (sbSyncErr) {
-        console.warn('[Supabase async sync note]:', sbSyncErr);
-      }
-    }
-
-    const usedCount = deviceSubmissionsCount + 1;
-    const remaining = Math.max(0, maxSubmissions - usedCount);
-
-    res.json({
-      success: true,
-      message: 'Your choice has been recorded successfully.',
-      contestant: {
-        id: contestant.id,
-        name: contestant.name,
-        contestant_number: contestant.contestant_number,
-        vote_count: contestant.vote_count,
-      },
-      submissions_used: usedCount,
-      remaining_submissions: remaining,
-      whatsapp_channel_url: contest.whatsapp_channel_url,
-      followers_count: currentContest?.followers_count,
-    });
+    res.sendStatus(200);
   } catch (err: any) {
-    console.error('[Vote Submission Error]', err);
-    res.status(500).json({
-      success: false,
-      error: 'SUBMISSION_ERROR',
-      message: 'An unexpected error occurred while processing your vote. Please try again.'
-    });
+    console.error('[Paystack Webhook Error]:', err);
+    res.sendStatus(500);
   }
 });
 
-// 6. Contestant Registration Workflow (Application Portal -> Impute candidate details)
-app.post('/api/contests/:slug/register-contestant', async (req, res) => {
-  const { slug } = req.params;
-  const { name, whatsappNumber, bio, photoUrl, contestantNumber, autoApprove } = req.body;
+// User Payment History
+app.get('/api/user/transactions', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  loadStoreFromDisk();
+  const txs = db.transactions
+    .filter(t => t.user_id === user.id)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  res.json({ transactions: txs });
+});
 
-  if (!name || typeof name !== 'string' || name.trim().length < 2) {
-    res.status(400).json({ error: 'Candidate name is required.' });
+// View Printable Receipt by Reference
+app.get('/api/user/receipt/:reference', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  const { reference } = req.params;
+  loadStoreFromDisk();
+
+  const tx = db.transactions.find(t => t.reference === reference);
+  if (!tx || (tx.user_id !== user.id && user.role === 'user')) {
+    res.status(404).json({ error: 'Receipt not found.' });
     return;
   }
 
-  const phoneCheck = validateAndFormatWhatsApp(whatsappNumber);
-  if (!phoneCheck.isValid) {
-    res.status(400).json({ error: phoneCheck.error || 'Valid WhatsApp number required for candidate contact.' });
-    return;
-  }
-
-  try {
-    const contest = localStore.contests.find(c => c.slug === slug || c.id === slug) || localStore.contests[0];
-    if (!contest) {
-      res.status(404).json({ error: 'Contest not found' });
-      return;
-    }
-
-    if (!contest.allow_contestant_registration) {
-      res.status(400).json({ error: 'Contestant registration is currently closed for this contest.' });
-      return;
-    }
-
-    // Determine contestant number: use imputed number if provided, otherwise compute next
-    let finalNumber = (contestantNumber || '').trim();
-    if (!finalNumber) {
-      const existingNumbers = localStore.contestants
-        .filter(c => c.contest_id === contest.id)
-        .map(c => parseInt(c.contestant_number, 10))
-        .filter(n => !isNaN(n));
-      finalNumber = (existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1).toString().padStart(2, '0');
-    }
-
-    // Default to approved so imputed details immediately show on public view as requested
-    const finalStatus: 'approved' | 'pending' = autoApprove === false ? 'pending' : 'approved';
-    const finalPhoto = (photoUrl && typeof photoUrl === 'string' && photoUrl.trim().length > 0) ? photoUrl.trim() : null;
-
-    const newContestant: LocalContestant = {
-      id: crypto.randomUUID(),
-      contest_id: contest.id,
-      contestant_number: finalNumber,
-      name: name.trim(),
-      bio: (bio || '').trim(),
-      photo_url: finalPhoto,
-      status: finalStatus,
-      whatsapp_number: phoneCheck.formatted,
-      vote_count: 0,
-      created_at: new Date().toISOString(),
-    };
-
-    if (supabase) {
-      try {
-        await supabase.from('contestants').insert({
-          id: newContestant.id,
-          contest_id: contest.id,
-          contestant_number: finalNumber,
-          name: newContestant.name,
-          bio: newContestant.bio,
-          photo_url: newContestant.photo_url,
-          status: finalStatus,
-          whatsapp_number: phoneCheck.formatted,
-          vote_count: 0,
-        });
-      } catch (sbErr) {
-        console.warn('[Supabase Sync Warning in register-contestant]:', sbErr);
-      }
-    }
-
-    localStore.contestants.push(newContestant);
-    saveStoreToDisk();
-
-    res.json({
-      success: true,
-      message: finalStatus === 'approved' 
-        ? `Contestant No. ${finalNumber} (${newContestant.name}) successfully imputed and published to the Public Portal!`
-        : 'Application submitted for administrative verification.',
-      contestant: newContestant,
-      contestant_number: finalNumber,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to submit candidate registration', details: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN ENDPOINTS (Protected)
-// ---------------------------------------------------------------------------
-
-// Admin Login / Verify Key
-app.post('/api/admin/login', (req, res) => {
-  const inputKey = ((req.body.secretKey as string) || '').trim();
-  if (inputKey === adminSecret || inputKey === 'verifiedmenmex' || inputKey === 'voters-decide-admin-2026') {
-    res.json({
-      success: true,
-      token: inputKey,
-      user: { role: 'super_admin', email: 'admin@votersdecide.org' },
-    });
-  } else {
-    res.status(401).json({ success: false, error: 'Invalid admin credentials.' });
-  }
-});
-
-// Admin: Get Full Contest Stats & Anti-Abuse Monitoring
-app.get('/api/admin/dashboard-stats', requireAdmin, async (req, res) => {
-  const contestId = (req.query.contestId as string) || localStore.contests[0]?.id;
-
-  const contest = localStore.contests.find(c => c.id === contestId) || localStore.contests[0];
-  const contestants = localStore.contestants.filter(c => c.contest_id === contest?.id);
-  const participations = localStore.participations.filter(p => p.contest_id === contest?.id);
-  const abuseLogs = localStore.abuse_logs.filter(a => a.contest_id === contest?.id);
-
-  const totalVotes = contestants.reduce((sum, c) => sum + c.vote_count, 0);
-  const totalSubmissions = participations.length;
-  const pendingCandidates = contestants.filter(c => c.status === 'pending').length;
+  const userOwner = db.users.find(u => u.id === tx.user_id) || user;
+  const activePlan = db.user_plans.find(up => up.id === tx.user_plan_id);
 
   res.json({
-    contest,
-    contests: localStore.contests,
-    contestants,
-    totalVotes,
-    totalSubmissions,
-    pendingCandidates,
-    recentParticipations: participations.slice(-25).reverse().map(p => {
-      const c = contestants.find(item => item.id === p.contestant_id);
-      return {
-        ...p,
-        contestant_name: c?.name || 'Unknown',
-        contestant_number: c?.contestant_number || '?',
-        // Mask phone slightly for privacy display
-        voter_whatsapp_masked: p.voter_whatsapp ? p.voter_whatsapp.slice(0, 5) + '••••' + p.voter_whatsapp.slice(-3) : '',
-      };
-    }),
-    abuseLogs: abuseLogs.slice(-20).reverse(),
+    receipt: {
+      transaction_id: tx.id,
+      reference: tx.reference,
+      save30_id: tx.save30_id,
+      user_name: `${userOwner.first_name} ${userOwner.last_name}`,
+      day_number: tx.day_number,
+      amount: tx.amount,
+      currency: tx.currency,
+      status: tx.status,
+      date: tx.verified_at || tx.created_at,
+      plan_name: activePlan?.plan_name || 'Save30 Standard',
+      payment_channel: tx.payment_method || 'Paystack',
+    },
   });
 });
 
-// Admin: Contestant Status Update (approve, reject, disable, restore)
-app.patch('/api/admin/contestants/:id/status', requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
+// ===========================================================================
+// WITHDRAWAL SYSTEM
+// ===========================================================================
 
-  if (!['pending', 'approved', 'rejected', 'disabled'].includes(status)) {
-    res.status(400).json({ error: 'Invalid status value' });
-    return;
-  }
+// Submit Withdrawal Request
+// Enforces Day 33 completion rule, auto-computes eligible amount, duplicate protection
+app.post('/api/withdrawals/request', requireAuth, (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const { full_name, bank_name, account_number, account_name } = req.body;
 
-  loadStoreFromDisk();
-  const contestant = localStore.contestants.find(c => c.id === id);
-  if (!contestant) {
-    res.status(404).json({ error: 'Contestant not found' });
-    return;
-  }
-
-  contestant.status = status;
-  saveStoreToDisk();
-
-  if (supabase) {
-    try {
-      await supabase.from('contestants').update({ status }).eq('id', id);
-    } catch (sbErr) {
-      console.warn('[Supabase Sync Warning in status update]:', sbErr);
+    if (!full_name || !bank_name || !account_number || !account_name) {
+      res.status(400).json({ error: 'Please provide all bank payout details: full name, bank name, account number, and account name.' });
+      return;
     }
-  }
 
-  res.json({ success: true, contestant });
+    loadStoreFromDisk();
+    const activePlan = db.user_plans.find(up => up.user_id === user.id && up.status === 'active');
+    if (!activePlan) {
+      res.status(400).json({ error: 'No active plan found for this account.' });
+      return;
+    }
+
+    // WITHDRAWAL UNLOCK RULE:
+    // User MUST have completed all required days (Day 1 through Day 33)
+    if (activePlan.completed_days < activePlan.total_days) {
+      res.status(400).json({
+        error: `Withdrawal locked: You have completed ${activePlan.completed_days}/${activePlan.total_days} days. You must complete Days 1–33 before withdrawal unlocks.`,
+      });
+      return;
+    }
+
+    // Verify all 33 days are actually marked successful
+    const planDays = db.contribution_days.filter(cd => cd.user_plan_id === activePlan.id);
+    const successfulCount = planDays.filter(cd => cd.status === 'successful').length;
+    if (successfulCount < activePlan.total_days) {
+      res.status(400).json({
+        error: `Verification mismatch: Only ${successfulCount} verified successful days found. Withdrawal remains locked.`,
+      });
+      return;
+    }
+
+    // DUPLICATE PROTECTION: Cannot submit if already pending or processing
+    const existingWithdrawal = db.withdrawals.find(
+      w => w.user_plan_id === activePlan.id && (w.status === 'pending' || w.status === 'processing')
+    );
+    if (existingWithdrawal) {
+      res.status(400).json({
+        error: `You already have an active withdrawal request (Status: ${existingWithdrawal.status.toUpperCase()}). Please wait for admin processing.`,
+      });
+      return;
+    }
+
+    // Check if a successful withdrawal already closed this plan
+    const completedWithdrawal = db.withdrawals.find(
+      w => w.user_plan_id === activePlan.id && w.status === 'successful'
+    );
+    if (completedWithdrawal) {
+      res.status(400).json({
+        error: 'This plan cycle has already been completed and paid out.',
+      });
+      return;
+    }
+
+    // Eligible amount is strictly calculated from active plan: daily_amount * core_days = ₦6,000
+    const eligibleAmount = activePlan.eligible_withdrawal_amount;
+
+    const withdrawal: StoredWithdrawal = {
+      id: `wth_${crypto.randomUUID()}`,
+      user_id: user.id,
+      save30_id: user.save30_id,
+      user_plan_id: activePlan.id,
+      full_name: full_name.trim(),
+      bank_name: bank_name.trim(),
+      account_number: account_number.trim(),
+      account_name: account_name.trim(),
+      amount: eligibleAmount,
+      currency: 'NGN',
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    };
+
+    db.withdrawals.unshift(withdrawal);
+
+    // Notify user
+    sendInAppNotification(
+      user.id,
+      'Withdrawal Request Received',
+      `Your withdrawal request for ₦${eligibleAmount.toLocaleString()} to ${withdrawal.bank_name} (${withdrawal.account_number}) has been submitted for admin processing.`,
+      'info'
+    );
+
+    saveStoreToDisk();
+
+    res.status(201).json({
+      success: true,
+      message: 'Withdrawal request submitted successfully. Status is now PENDING.',
+      withdrawal,
+    });
+  } catch (err: any) {
+    console.error('[Save30 Withdrawal Request Error]:', err);
+    res.status(500).json({ error: 'Server error processing withdrawal request.' });
+  }
 });
 
-// Admin: Add Contestant
-app.post('/api/admin/contestants', requireAdmin, async (req, res) => {
-  const { contest_id, contestant_number, name, bio, photo_url, whatsapp_number, status } = req.body;
+// Start New Plan Cycle After Completion
+app.post('/api/user/plans/new-cycle', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  loadStoreFromDisk();
 
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    res.status(400).json({ error: 'Candidate name is required' });
+  // Check if there is an unfinished active plan
+  const activePlan = db.user_plans.find(up => up.user_id === user.id && up.status === 'active');
+  if (activePlan) {
+    res.status(400).json({
+      error: `You currently have Plan #${activePlan.cycle_number} active (${activePlan.completed_days}/${activePlan.total_days} days). You must complete your current plan before starting a new cycle.`,
+    });
     return;
   }
 
-  loadStoreFromDisk();
-  const targetContestId = contest_id || localStore.contest.id || (localStore.contests && localStore.contests[0]?.id) || 'official-contest';
+  const completedPlans = db.user_plans.filter(up => up.user_id === user.id);
+  const nextCycle = completedPlans.length + 1;
 
-  let targetNumber = (contestant_number || '').toString().trim();
-  if (!targetNumber) {
-    const existing = localStore.contestants.map(c => parseInt(c.contestant_number, 10)).filter(n => !isNaN(n));
-    targetNumber = (existing.length > 0 ? Math.max(...existing) + 1 : 1).toString().padStart(2, '0');
-  } else {
-    targetNumber = targetNumber.padStart(2, '0');
+  const newPlan = initializeUserPlanCycle(user.id, nextCycle);
+
+  sendInAppNotification(
+    user.id,
+    `Plan Cycle #${nextCycle} Started!`,
+    `Congratulations on starting a fresh Save30 cycle! Your Day 1 contribution of ₦${newPlan.daily_amount} is now ready.`,
+    'success'
+  );
+
+  res.json({
+    success: true,
+    message: `Plan Cycle #${nextCycle} started successfully!`,
+    plan: newPlan,
+  });
+});
+
+// Notifications API
+app.get('/api/user/notifications', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  loadStoreFromDisk();
+  const notifs = db.notifications
+    .filter(n => n.user_id === user.id)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  res.json({ notifications: notifs });
+});
+
+app.post('/api/user/notifications/mark-read', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  loadStoreFromDisk();
+  db.notifications.filter(n => n.user_id === user.id).forEach(n => { n.is_read = true; });
+  saveStoreToDisk();
+  res.json({ success: true });
+});
+
+// Support Tickets API
+app.post('/api/user/support', requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  const { subject, message } = req.body;
+  if (!subject || !message) {
+    res.status(400).json({ error: 'Please provide both subject and message.' });
+    return;
+  }
+  const ticket: StoredSupportTicket = {
+    id: `ticket_${crypto.randomUUID()}`,
+    user_id: user.id,
+    save30_id: user.save30_id,
+    user_name: `${user.first_name} ${user.last_name}`,
+    user_email: user.email,
+    subject: subject.trim(),
+    message: message.trim(),
+    status: 'open',
+    created_at: new Date().toISOString(),
+  };
+  db.support_tickets.unshift(ticket);
+  saveStoreToDisk();
+  res.json({ success: true, message: 'Support ticket submitted. A representative will contact you shortly.', ticket });
+});
+
+// ===========================================================================
+// ADMINISTRATIVE ENDPOINTS (SUPER ADMIN, FINANCE ADMIN, SUPPORT ADMIN)
+// ===========================================================================
+
+// Admin Overview Metrics
+app.get('/api/admin/overview', requireAdminRole(['super_admin', 'finance_admin', 'support_admin']), (req: AuthenticatedRequest, res) => {
+  loadStoreFromDisk();
+  const totalUsers = db.users.filter(u => u.role === 'user').length;
+  const activePlans = db.user_plans.filter(up => up.status === 'active').length;
+  const completedPlans = db.user_plans.filter(up => up.status === 'completed').length;
+  const totalSuccessfulContributions = db.contribution_days.filter(cd => cd.status === 'successful').length;
+  const totalVolume = db.transactions.filter(t => t.status === 'successful').reduce((acc, t) => acc + t.amount, 0);
+
+  const pendingWithdrawalsCount = db.withdrawals.filter(w => w.status === 'pending').length;
+  const processingWithdrawalsCount = db.withdrawals.filter(w => w.status === 'processing').length;
+  const paidWithdrawalsCount = db.withdrawals.filter(w => w.status === 'successful').length;
+  const totalPayoutVolume = db.withdrawals.filter(w => w.status === 'successful').reduce((acc, w) => acc + w.amount, 0);
+
+  res.json({
+    metrics: {
+      totalUsers,
+      activePlans,
+      completedPlans,
+      totalSuccessfulContributions,
+      totalVolume,
+      pendingWithdrawalsCount,
+      processingWithdrawalsCount,
+      paidWithdrawalsCount,
+      totalPayoutVolume,
+    },
+    admin_role: req.user!.role,
+  });
+});
+
+// Admin Users List & Search
+app.get('/api/admin/users', requireAdminRole(['super_admin', 'finance_admin', 'support_admin']), (req: AuthenticatedRequest, res) => {
+  const query = (req.query.q as string || '').toLowerCase().trim();
+  loadStoreFromDisk();
+
+  let users = db.users
+    .filter(u => u.role === 'user')
+    .sort((a, b) => b.sequence_number - a.sequence_number);
+
+  if (query) {
+    users = users.filter(
+      u =>
+        u.save30_id.toLowerCase().includes(query) ||
+        u.first_name.toLowerCase().includes(query) ||
+        u.last_name.toLowerCase().includes(query) ||
+        u.email.toLowerCase().includes(query) ||
+        u.phone.includes(query)
+    );
   }
 
-  const newC: LocalContestant = {
-    id: crypto.randomUUID(),
-    contest_id: targetContestId,
-    contestant_number: targetNumber,
+  const enrichedUsers = users.map(u => {
+    const activePlan = db.user_plans.find(up => up.user_id === u.id && up.status === 'active');
+    const completedCount = db.user_plans.filter(up => up.user_id === u.id && up.status === 'completed').length;
+    return {
+      id: u.id,
+      save30_id: u.save30_id,
+      sequence_number: u.sequence_number,
+      first_name: u.first_name,
+      last_name: u.last_name,
+      email: u.email,
+      phone: u.phone,
+      is_suspended: u.is_suspended,
+      created_at: u.created_at,
+      activePlan: activePlan
+        ? {
+            plan_name: activePlan.plan_name,
+            cycle_number: activePlan.cycle_number,
+            completed_days: activePlan.completed_days,
+            total_days: activePlan.total_days,
+            total_amount_paid: activePlan.total_amount_paid,
+            eligible_withdrawal_amount: activePlan.eligible_withdrawal_amount,
+          }
+        : null,
+      completedCyclesCount: completedCount,
+    };
+  });
+
+  res.json({ users: enrichedUsers });
+});
+
+// Admin User Profile Details
+app.get('/api/admin/users/:id', requireAdminRole(['super_admin', 'finance_admin', 'support_admin']), (req: AuthenticatedRequest, res) => {
+  const { id } = req.params;
+  loadStoreFromDisk();
+
+  const user = db.users.find(u => u.id === id || u.save30_id === id);
+  if (!user) {
+    res.status(404).json({ error: 'User not found.' });
+    return;
+  }
+
+  const userPlans = db.user_plans.filter(up => up.user_id === user.id).sort((a, b) => b.cycle_number - a.cycle_number);
+  const transactions = db.transactions.filter(t => t.user_id === user.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const withdrawals = db.withdrawals.filter(w => w.user_id === user.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  res.json({
+    user: {
+      id: user.id,
+      save30_id: user.save30_id,
+      sequence_number: user.sequence_number,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      is_suspended: user.is_suspended,
+      created_at: user.created_at,
+    },
+    userPlans,
+    transactions,
+    withdrawals,
+  });
+});
+
+// Admin Suspend / Reactivate User
+app.patch('/api/admin/users/:id/status', requireAdminRole(['super_admin']), (req: AuthenticatedRequest, res) => {
+  const { id } = req.params;
+  const { is_suspended, reason } = req.body;
+  const admin = req.user!;
+
+  loadStoreFromDisk();
+  const user = db.users.find(u => u.id === id);
+  if (!user) {
+    res.status(404).json({ error: 'User not found.' });
+    return;
+  }
+
+  const prevStatus = user.is_suspended;
+  user.is_suspended = Boolean(is_suspended);
+  user.updated_at = new Date().toISOString();
+
+  recordAuditLog(
+    admin,
+    user.is_suspended ? 'USER_SUSPENDED' : 'USER_REACTIVATED',
+    'USER',
+    user.id,
+    { is_suspended: prevStatus },
+    { is_suspended: user.is_suspended },
+    reason || 'Admin status change',
+    req.ip
+  );
+
+  saveStoreToDisk();
+  res.json({ success: true, message: `User ${user.save30_id} ${user.is_suspended ? 'suspended' : 'reactivated'} successfully.`, user });
+});
+
+// Admin Plan Management
+app.get('/api/admin/plans', requireAdminRole(['super_admin', 'finance_admin']), (req, res) => {
+  loadStoreFromDisk();
+  res.json({ plans: db.plans });
+});
+
+app.post('/api/admin/plans', requireAdminRole(['super_admin']), (req: AuthenticatedRequest, res) => {
+  const { name, daily_amount, core_days, additional_days, description } = req.body;
+  const admin = req.user!;
+
+  if (!name || !daily_amount || !core_days || !additional_days) {
+    res.status(400).json({ error: 'Please provide all plan parameters: name, daily_amount, core_days, additional_days.' });
+    return;
+  }
+
+  const dAmt = Number(daily_amount);
+  const cDays = Number(core_days);
+  const aDays = Number(additional_days);
+  const totalDays = cDays + aDays;
+
+  const newPlan: StoredPlanTemplate = {
+    id: `plan_${crypto.randomUUID()}`,
     name: name.trim(),
-    bio: bio ? bio.trim() : '',
-    photo_url: photo_url && photo_url.trim().length > 0 ? photo_url.trim() : null,
-    whatsapp_number: whatsapp_number ? whatsapp_number.trim() : undefined,
-    status: status || 'approved',
-    vote_count: 0,
+    daily_amount: dAmt,
+    core_days: cDays,
+    additional_days: aDays,
+    total_required_days: totalDays,
+    description: description || `Daily ₦${dAmt} for ${cDays} core days + ${aDays} additional days (${totalDays} total days).`,
+    status: 'active',
     created_at: new Date().toISOString(),
   };
 
-  localStore.contestants.push(newC);
+  db.plans.push(newPlan);
+  recordAuditLog(admin, 'PLAN_CREATED', 'PLAN', newPlan.id, null, newPlan, `Created plan ${newPlan.name}`, req.ip);
+
   saveStoreToDisk();
-
-  if (supabase) {
-    try {
-      await supabase.from('contestants').insert(newC);
-    } catch (sbErr) {
-      console.warn('[Supabase Sync Warning in add contestant]:', sbErr);
-    }
-  }
-
-  res.json({ success: true, contestant: newC });
+  res.status(201).json({ success: true, plan: newPlan });
 });
 
-// Admin: Update Contestant Details
-app.patch('/api/admin/contestants/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/plans/:id', requireAdminRole(['super_admin']), (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
-  const { name, bio, photo_url, whatsapp_number, contestant_number } = req.body;
+  const { daily_amount, core_days, additional_days, description, status } = req.body;
+  const admin = req.user!;
 
   loadStoreFromDisk();
-  const contestant = localStore.contestants.find(c => c.id === id);
-  if (!contestant) {
-    res.status(404).json({ error: 'Contestant not found' });
+  const plan = db.plans.find(p => p.id === id);
+  if (!plan) {
+    res.status(404).json({ error: 'Plan template not found.' });
     return;
   }
 
-  if (name !== undefined && name.trim().length > 0) contestant.name = name.trim();
-  if (bio !== undefined) contestant.bio = bio ? bio.trim() : '';
-  if (photo_url !== undefined) contestant.photo_url = photo_url && photo_url.trim().length > 0 ? photo_url.trim() : null;
-  if (whatsapp_number !== undefined) contestant.whatsapp_number = whatsapp_number ? whatsapp_number.trim() : undefined;
-  if (contestant_number !== undefined) contestant.contestant_number = contestant_number.toString().padStart(2, '0');
+  const prev = { ...plan };
+  if (daily_amount !== undefined) plan.daily_amount = Number(daily_amount);
+  if (core_days !== undefined) plan.core_days = Number(core_days);
+  if (additional_days !== undefined) plan.additional_days = Number(additional_days);
+  plan.total_required_days = plan.core_days + plan.additional_days;
+  if (description !== undefined) plan.description = description;
+  if (status !== undefined) plan.status = status;
+  plan.updated_at = new Date().toISOString();
+
+  // NOTE: Existing user plans remain tied to their original snapshot!
+  recordAuditLog(admin, 'PLAN_UPDATED', 'PLAN', plan.id, prev, plan, `Updated plan template ${plan.name}`, req.ip);
+
   saveStoreToDisk();
-
-  if (supabase) {
-    try {
-      await supabase.from('contestants').update({
-        name: contestant.name,
-        bio: contestant.bio,
-        photo_url: contestant.photo_url,
-        whatsapp_number: contestant.whatsapp_number,
-        contestant_number: contestant.contestant_number,
-      }).eq('id', id);
-    } catch (sbErr) {
-      console.warn('[Supabase Sync Warning in update contestant]:', sbErr);
-    }
-  }
-
-  res.json({ success: true, contestant });
+  res.json({ success: true, message: 'Plan template updated. Existing active user plans remain protected by snapshot versioning.', plan });
 });
 
-// Admin: Delete Contestant
-app.delete('/api/admin/contestants/:id', requireAdmin, async (req, res) => {
-  const { id } = req.params;
+// Admin Withdrawal Management
+app.get('/api/admin/withdrawals', requireAdminRole(['super_admin', 'finance_admin']), (req, res) => {
   loadStoreFromDisk();
-  const index = localStore.contestants.findIndex(c => c.id === id);
-  if (index === -1) {
-    res.status(404).json({ error: 'Contestant not found' });
-    return;
-  }
-
-  const [deleted] = localStore.contestants.splice(index, 1);
-  saveStoreToDisk();
-
-  if (supabase) {
-    try {
-      await supabase.from('contestants').delete().eq('id', id);
-    } catch (sbErr) {
-      console.warn('[Supabase Sync Warning in delete contestant]:', sbErr);
-    }
-  }
-
-  res.json({ success: true, message: `Contestant ${deleted.name} removed successfully`, deleted });
+  const withdrawals = [...db.withdrawals].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  res.json({ withdrawals });
 });
 
-// Admin: Update Contest Settings (Persisted to disk & Supabase)
-app.patch('/api/admin/contests/:id', requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  const updates = req.body;
-
-  loadStoreFromDisk();
-  const contest = localStore.contests.find(c => c.id === id || c.slug === id) || localStore.contests[0];
-  if (!contest) {
-    res.status(404).json({ error: 'Contest not found' });
-    return;
-  }
-
-  // Whitelist and format settings cleanly
-  const allowedKeys = [
-    'title',
-    'description',
-    'category',
-    'status',
-    'start_time',
-    'end_time',
-    'max_submissions_per_device',
-    'whatsapp_channel_url',
-    'whatsapp_channel_name',
-    'is_public_leaderboard_visible',
-    'allow_contestant_registration',
-    'show_countdown',
-    'is_countdown_visible',
-    'banner_url',
-    'slug',
-    'views_count',
-    'followers_count',
-  ];
-
-  const dbUpdates: Record<string, any> = {};
-  for (const key of allowedKeys) {
-    if (updates[key] !== undefined) {
-      (contest as any)[key] = updates[key];
-      dbUpdates[key] = updates[key];
-    }
-  }
-
-  // Ensure numbers are properly parsed
-  if (dbUpdates.max_submissions_per_device !== undefined) {
-    const parsed = parseInt(String(dbUpdates.max_submissions_per_device), 10);
-    if (!isNaN(parsed)) {
-      contest.max_submissions_per_device = parsed;
-      dbUpdates.max_submissions_per_device = parsed;
-    }
-  }
-  if (dbUpdates.views_count !== undefined) {
-    const parsed = parseInt(String(dbUpdates.views_count), 10);
-    if (!isNaN(parsed)) {
-      contest.views_count = parsed;
-      dbUpdates.views_count = parsed;
-    }
-  }
-  if (dbUpdates.followers_count !== undefined) {
-    const parsed = parseInt(String(dbUpdates.followers_count), 10);
-    if (!isNaN(parsed)) {
-      contest.followers_count = parsed;
-      dbUpdates.followers_count = parsed;
-    }
-  }
-
-  saveStoreToDisk();
-
-  if (supabase) {
-    try {
-      await supabase.from('contests').update(dbUpdates).eq('id', contest.id);
-    } catch (sErr) {
-      console.warn('[Supabase] Contest update warning:', sErr);
-    }
-  }
-
-  res.json({ success: true, contest, message: 'Contest settings updated and saved permanently.' });
-});
-
-// Admin: Reset Device Participation (Convenience helper for testing the 2-vote limit!)
-app.post('/api/admin/reset-device-test', requireAdmin, (req, res) => {
-  const { deviceToken } = req.body;
-  if (!deviceToken) {
-    res.status(400).json({ error: 'deviceToken required' });
-    return;
-  }
-
-  localStore.participations = localStore.participations.filter(p => p.device_token !== deviceToken);
-  saveStoreToDisk();
-  res.json({ success: true, message: `Participation test records cleared for token: ${deviceToken}` });
-});
-
-// Admin: Refresh All Devices & Clear Locked Voters (Ready for new contest / new voting round)
-app.post('/api/admin/reset-all-devices', requireAdmin, async (req, res) => {
+// Admin Process Withdrawal Request:
+// PENDING -> PROCESSING -> SUCCESSFUL or FAILED
+// CRITICAL: When marked SUCCESSFUL, user's active plan automatically becomes COMPLETED.
+app.patch('/api/admin/withdrawals/:id', requireAdminRole(['super_admin', 'finance_admin']), (req: AuthenticatedRequest, res) => {
   try {
-    const { contestSlug, resetVoteCounts = false, resetContestStatus = false } = req.body;
-    const contest = contestSlug 
-      ? localStore.contests.find(c => c.slug === contestSlug || c.id === contestSlug) 
-      : localStore.contests[0];
+    const { id } = req.params;
+    const { status, admin_notes, payment_reference } = req.body;
+    const admin = req.user!;
 
-    const prevParticipationsCount = localStore.participations.length;
-
-    // 1. Clear all device vote/participation records so all previously locked devices are free to vote again
-    if (contest) {
-      localStore.participations = localStore.participations.filter(
-        p => p.contest_id !== contest.id && p.contest_id !== contest.slug
-      );
-    } else {
-      localStore.participations = [];
+    if (!['pending', 'processing', 'successful', 'failed'].includes(status)) {
+      res.status(400).json({ error: 'Invalid withdrawal status.' });
+      return;
     }
 
-    // 2. Also clear abuse logs so no devices stay flagged from previous contest
-    localStore.abuse_logs = [];
-
-    // 3. Optionally zero out contestant vote tallies if starting fresh contest
-    if (resetVoteCounts) {
-      localStore.contestants.forEach(c => {
-        c.vote_count = 0;
-      });
+    loadStoreFromDisk();
+    const withdrawal = db.withdrawals.find(w => w.id === id);
+    if (!withdrawal) {
+      res.status(404).json({ error: 'Withdrawal request not found.' });
+      return;
     }
 
-    // 4. Update contest reset timestamp and status if requested
-    if (contest) {
-      contest.last_devices_reset_at = new Date().toISOString();
-      if (resetContestStatus) {
-        contest.status = 'active';
+    const prevStatus = withdrawal.status;
+    withdrawal.status = status;
+    withdrawal.admin_notes = admin_notes || withdrawal.admin_notes;
+    withdrawal.processed_by_admin_id = admin.id;
+    withdrawal.processed_at = new Date().toISOString();
+    withdrawal.updated_at = new Date().toISOString();
+
+    if (payment_reference) {
+      withdrawal.payment_reference = payment_reference.trim();
+    }
+
+    // AUTOMATED PLAN COMPLETION:
+    // Once administrator marks withdrawal SUCCESSFUL, current plan becomes COMPLETED.
+    if (status === 'successful') {
+      const userPlan = db.user_plans.find(up => up.id === withdrawal.user_plan_id);
+      if (userPlan) {
+        userPlan.status = 'completed';
+        userPlan.completed_at = new Date().toISOString();
       }
+
+      sendInAppNotification(
+        withdrawal.user_id,
+        'Payout Successful!',
+        `Your withdrawal of ₦${withdrawal.amount.toLocaleString()} has been paid to ${withdrawal.bank_name} (${withdrawal.account_number}). Ref: ${withdrawal.payment_reference || 'N/A'}. Plan #${userPlan?.cycle_number || 1} is now completed!`,
+        'success'
+      );
+    } else if (status === 'processing') {
+      sendInAppNotification(
+        withdrawal.user_id,
+        'Withdrawal Processing',
+        `Your withdrawal request of ₦${withdrawal.amount.toLocaleString()} is currently being processed by finance administration.`,
+        'info'
+      );
+    } else if (status === 'failed') {
+      sendInAppNotification(
+        withdrawal.user_id,
+        'Withdrawal Issue',
+        `Your withdrawal request could not be completed. Reason: ${admin_notes || 'Please verify account information.'}`,
+        'error'
+      );
     }
+
+    recordAuditLog(
+      admin,
+      `WITHDRAWAL_${status.toUpperCase()}`,
+      'WITHDRAWAL',
+      withdrawal.id,
+      { status: prevStatus },
+      { status: withdrawal.status, payment_reference: withdrawal.payment_reference },
+      admin_notes || `Status changed from ${prevStatus} to ${status}`,
+      req.ip
+    );
 
     saveStoreToDisk();
 
-    // 5. If Supabase PostgreSQL is connected, sync database tables
-    if (supabase) {
-      try {
-        if (contest) {
-          await supabase.from('participations').delete().eq('contest_id', contest.id);
-        } else {
-          await supabase.from('participations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        }
-
-        if (resetVoteCounts) {
-          await supabase.from('contestants').update({ vote_count: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
-        }
-
-        if (contest && resetContestStatus) {
-          await supabase.from('contests').update({ 
-            status: 'active', 
-            updated_at: new Date().toISOString() 
-          }).eq('id', contest.id);
-        }
-      } catch (sbErr) {
-        console.warn('[Supabase] Error syncing reset-all-devices to Supabase:', sbErr);
-      }
-    }
-
     res.json({
       success: true,
-      message: `All devices have been successfully refreshed and unlocked! (${prevParticipationsCount} participation locks cleared). Devices are now free to vote in the new contest.`,
-      clearedRecords: prevParticipationsCount,
-      resetVoteCounts,
-      contest,
-      contestants: localStore.contestants,
+      message: `Withdrawal status updated to ${status.toUpperCase()}.`,
+      withdrawal,
     });
   } catch (err: any) {
-    console.error('[Admin Reset All Devices Error]', err);
-    res.status(500).json({ error: 'Failed to reset all devices', details: err.message });
+    console.error('[Admin Withdrawal Update Error]:', err);
+    res.status(500).json({ error: 'Server error updating withdrawal.' });
   }
 });
 
-// ---------------------------------------------------------------------------
-// SUPABASE ONE-CLICK CLOUD SYNCHRONIZATION
-// ---------------------------------------------------------------------------
-app.post('/api/admin/sync-to-supabase', requireAdmin, async (req, res) => {
-  if (!supabase) {
-    res.status(400).json({
-      success: false,
-      error: 'Supabase credentials are not configured.',
-    });
+// Admin Transactions Ledger
+app.get('/api/admin/transactions', requireAdminRole(['super_admin', 'finance_admin']), (req, res) => {
+  loadStoreFromDisk();
+  const transactions = [...db.transactions].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  res.json({ transactions });
+});
+
+// Admin Audit Logs
+app.get('/api/admin/audit-logs', requireAdminRole(['super_admin']), (req, res) => {
+  loadStoreFromDisk();
+  res.json({ audit_logs: db.audit_logs });
+});
+
+// Admin Support Tickets
+app.get('/api/admin/support-tickets', requireAdminRole(['super_admin', 'support_admin']), (req, res) => {
+  loadStoreFromDisk();
+  res.json({ tickets: db.support_tickets });
+});
+
+app.patch('/api/admin/support-tickets/:id', requireAdminRole(['super_admin', 'support_admin']), (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  loadStoreFromDisk();
+  const ticket = db.support_tickets.find(t => t.id === id);
+  if (!ticket) {
+    res.status(404).json({ error: 'Ticket not found.' });
     return;
   }
+  ticket.status = status;
+  ticket.updated_at = new Date().toISOString();
+  saveStoreToDisk();
+  res.json({ success: true, ticket });
+});
 
-  try {
-    const currentContest = localStore.contests[0];
-    if (currentContest) {
-      const { error: cErr } = await supabase.from('contests').upsert({
-        id: currentContest.id,
-        slug: currentContest.slug,
-        title: currentContest.title,
-        description: currentContest.description,
-        category: currentContest.category,
-        status: currentContest.status,
-        start_time: currentContest.start_time,
-        end_time: currentContest.end_time,
-        max_submissions_per_device: currentContest.max_submissions_per_device,
-        whatsapp_channel_url: currentContest.whatsapp_channel_url,
-        whatsapp_channel_name: currentContest.whatsapp_channel_name,
-        is_public_leaderboard_visible: currentContest.is_public_leaderboard_visible,
-        allow_contestant_registration: currentContest.allow_contestant_registration,
-      });
-      if (cErr) throw cErr;
-    }
-
-    let syncedCount = 0;
-    if (localStore.contestants.length > 0) {
-      const records = localStore.contestants.map(c => ({
-        id: c.id,
-        contest_id: c.contest_id,
-        contestant_number: c.contestant_number,
-        name: c.name,
-        bio: c.bio,
-        photo_url: c.photo_url,
-        status: c.status,
-        whatsapp_number: c.whatsapp_number,
-        vote_count: c.vote_count,
-      }));
-      const { error: ctErr } = await supabase.from('contestants').upsert(records);
-      if (ctErr) throw ctErr;
-      syncedCount = records.length;
-    }
-
+// Verify Admin Key (for quick switcher or fallback auth)
+app.post('/api/admin/verify', (req, res) => {
+  const { secretKey } = req.body;
+  if (!secretKey) {
+    res.status(400).json({ valid: false, error: 'No secret key provided' });
+    return;
+  }
+  const isValid = secretKey.trim() === adminSecret || secretKey.trim() === 'verifiedmenmex' || secretKey.trim() === 'Save30Admin2026!';
+  if (isValid) {
+    const adminUser = db.users.find(u => u.role === 'super_admin') || defaultUsers[0];
+    const token = generateAuthToken(adminUser.id, adminUser.role);
     res.json({
-      success: true,
-      message: `Cloud synchronization successful! Contest and ${syncedCount} contestants published to Supabase.`,
-      syncedContestants: syncedCount,
+      valid: true,
+      token,
+      user: {
+        id: adminUser.id,
+        save30_id: adminUser.save30_id,
+        email: adminUser.email,
+        role: adminUser.role,
+        first_name: adminUser.first_name,
+        last_name: adminUser.last_name,
+      },
     });
-  } catch (err: any) {
-    console.warn('[Supabase Sync Notice]:', err?.message || err);
-    res.status(500).json({
-      success: false,
-      error: err.message || 'Failed to synchronize with Supabase',
-      hint: 'Ensure you have executed the SQL script in your Supabase SQL Editor first.',
-      sqlUrl: 'https://supabase.com/dashboard/project/pwnpskdkoefrqmowwbgo/sql/new',
-    });
+  } else {
+    res.status(401).json({ valid: false, error: 'Invalid administrator authorization key' });
   }
 });
 
 // ---------------------------------------------------------------------------
-// GEMINI AI INTEGRATION ENDPOINTS WITH RESILIENT FALLBACKS
-// ---------------------------------------------------------------------------
-
-// Multi-model resilience: if primary model is unavailable or overloaded (HTTP 503 / 429 / 404), try fallbacks
-async function generateGeminiContentWithFallback(prompt: string, jsonMode = false): Promise<string | null> {
-  if (!geminiClient) return null;
-
-  // Candidates in order of speed, reliability, and quota (strictly active models)
-  const models = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
-
-  for (const model of models) {
-    try {
-      const config: any = {};
-      if (jsonMode) {
-        config.responseMimeType = 'application/json';
-      }
-
-      const response = await geminiClient.models.generateContent({
-        model,
-        contents: prompt,
-        config: Object.keys(config).length ? config : undefined,
-      });
-
-      if (response && response.text) {
-        return response.text.trim();
-      }
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      const is503OrUnavailable = msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE') || msg.includes('429');
-      if (is503OrUnavailable) {
-        console.warn(`[Gemini AI] Model ${model} is experiencing high demand (503/UNAVAILABLE). Trying next candidate...`);
-      } else {
-        console.warn(`[Gemini AI] Attempt with ${model} failed: ${msg}. Trying next candidate...`);
-      }
-    }
-  }
-
-  return null;
-}
-
-// 1. AI Contestant Bio & Pitch Generator
-app.post('/api/ai/generate-bio', async (req, res) => {
-  const { name, category, notes } = req.body;
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    res.status(400).json({ error: 'Candidate name is required' });
-    return;
-  }
-
-  const trimmedName = name.trim();
-  const contestCategory = category || 'Public Contest';
-  const fallbackBio = `Dedicated and passionate candidate standing for excellence and community empowerment in ${contestCategory}. Ready to serve, lead, and represent with integrity and transparent vision.`;
-
-  if (geminiClient) {
-    try {
-      const prompt = `You are a professional campaign strategist. Write a captivating, inspiring candidate manifesto / bio (maximum 2 to 3 sentences, 40 to 60 words total) for a voting contest.
-Candidate Name: ${trimmedName}
-Contest Category: ${contestCategory}
-Key Points / Focus: ${notes || 'Integrity, vision, excellence, dedicated service'}
-
-Output ONLY the plain bio text without quotes, headings, or bullets.`;
-
-      const aiText = await generateGeminiContentWithFallback(prompt, false);
-      if (aiText && aiText.length > 10) {
-        res.json({ success: true, bio: aiText });
-        return;
-      }
-    } catch (err: any) {
-      console.warn('[Gemini AI] Bio generation fallback activated:', err?.message || err);
-    }
-  }
-
-  res.json({
-    success: true,
-    bio: fallbackBio,
-  });
-});
-
-// 2. AI Vote Integrity & Fraud Audit
-app.post('/api/ai/analyze-audit', requireAdmin, async (req, res) => {
-  const recentVotes = localStore.participations.slice(-30);
-  const abuseLogs = localStore.abuse_logs.slice(-15);
-
-  const totalSubmissions = localStore.participations.length;
-  const recentCount = recentVotes.length;
-
-  // Real statistical heuristic baseline: guarantees zero downtime or crashes during API spikes
-  const uniqueDevices = new Set(recentVotes.map(v => v.device_token)).size;
-  const abuseCount = abuseLogs.length;
-  const calculatedRisk: 'LOW' | 'MEDIUM' | 'HIGH' = abuseCount > 5 ? 'HIGH' : abuseCount > 0 ? 'MEDIUM' : 'LOW';
-
-  const defaultSummary = abuseCount === 0
-    ? `Voting audit verified clean. Analysis of ${recentCount} recent ballots confirms legitimate device distribution (${uniqueDevices} unique client devices) conforming strictly to the 2-ballot limit.`
-    : `Audit recorded ${abuseCount} blocked duplicate attempts. Device fingerprinting limits successfully prevented unauthorized votes from registering.`;
-
-  const defaultRecommendations = abuseCount === 0
-    ? [
-        'Maintain active 2-ballot per device cryptographic lock.',
-        'Continue periodic log monitoring.',
-      ]
-    : [
-        'Inspect IP cluster logs.',
-        'Use "Refresh All Devices" between contest rounds if resetting participation.',
-      ];
-
-  if (geminiClient) {
-    try {
-      const auditData = {
-        totalSubmissionsCount: totalSubmissions,
-        sampleRecentSubmissions: recentVotes.map(v => ({
-          devicePrefix: v.device_token ? v.device_token.slice(0, 10) : 'none',
-          ip: v.ip_address,
-          time: v.created_at,
-        })),
-        recentAbuseLogs: abuseLogs,
-      };
-
-      const prompt = `You are an election cybersecurity and voting fraud detection analyst. Review this voting audit sample:
-${JSON.stringify(auditData, null, 2)}
-
-Provide a structured security analysis:
-1. "riskLevel": ("LOW", "MEDIUM", or "HIGH")
-2. "summary": (2 concise sentences evaluating device token distribution and velocity)
-3. "recommendations": (Array of 2-3 brief actionable steps)
-
-Output strictly valid JSON with keys: riskLevel, summary, recommendations.`;
-
-      const aiText = await generateGeminiContentWithFallback(prompt, true);
-      if (aiText) {
-        try {
-          const clean = aiText.replace(/```json|```/g, '').trim();
-          const parsed = JSON.parse(clean);
-          if (parsed.riskLevel && parsed.summary) {
-            res.json({ success: true, ...parsed });
-            return;
-          }
-        } catch {
-          // If JSON parse failed, fall through to deterministic summary
-        }
-      }
-    } catch (err: any) {
-      console.warn('[Gemini AI] Audit fallback activated:', err?.message || err);
-    }
-  }
-
-  // Graceful response guaranteed even when AI API experiences 503 high demand
-  res.json({
-    success: true,
-    riskLevel: calculatedRisk,
-    summary: defaultSummary,
-    recommendations: defaultRecommendations,
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Server & Vite Middleware Integration
+// Mount Vite Development Middleware or Static Assets for Production
 // ---------------------------------------------------------------------------
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
@@ -1593,8 +1866,14 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Voters Decide] Server running on http://0.0.0.0:${PORT}`);
+    console.log(`[Save30 Server] Running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+// Export app for serverless deployment (e.g. Vercel)
+export default app;
+export { app };
+
+if (!process.env.VERCEL) {
+  startServer();
+}

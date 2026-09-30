@@ -1,296 +1,185 @@
 -- ==============================================================================
--- VOTERS DECIDE — PRODUCTION DATABASE SCHEMA & MIGRATION
--- Single source of truth for contests, contestants, votes, and anti-abuse logs.
+-- SAVE30 — PRODUCTION DATABASE SCHEMA & MIGRATIONS
+-- Secure, disciplined Nigerian daily savings platform
+-- Single source of truth for accounts, plans, contributions, transactions, and withdrawals.
 -- ==============================================================================
 
--- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 2. ENUMS
-DO $$ BEGIN
-    CREATE TYPE contest_status AS ENUM ('draft', 'upcoming', 'active', 'paused', 'closed');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
+-- 1. PROFILES (USERS) TABLE
+-- Sequential ID generator starts at 1 -> SAVE30-001, SAVE30-002, etc.
+CREATE SEQUENCE IF NOT EXISTS save30_user_seq START WITH 1 INCREMENT BY 1;
 
-DO $$ BEGIN
-    CREATE TYPE contestant_status AS ENUM ('pending', 'approved', 'rejected', 'disabled');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- 3. CONTESTS TABLE
-CREATE TABLE IF NOT EXISTS public.contests (
+CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    slug TEXT UNIQUE NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    category TEXT DEFAULT 'General',
-    status contest_status NOT NULL DEFAULT 'active',
-    start_time TIMESTAMPTZ DEFAULT now(),
-    end_time TIMESTAMPTZ,
-    max_submissions_per_device INTEGER NOT NULL DEFAULT 2,
-    whatsapp_channel_url TEXT NOT NULL DEFAULT 'https://whatsapp.com/channel/0029Vaexample',
-    whatsapp_channel_name TEXT NOT NULL DEFAULT 'Voters Decide Official Channel',
-    is_public_leaderboard_visible BOOLEAN NOT NULL DEFAULT true,
-    allow_contestant_registration BOOLEAN NOT NULL DEFAULT true,
+    save30_id TEXT UNIQUE NOT NULL,
+    sequence_number INTEGER UNIQUE NOT NULL DEFAULT nextval('save30_user_seq'),
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    phone TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'super_admin', 'finance_admin', 'support_admin')),
+    is_suspended BOOLEAN NOT NULL DEFAULT false,
+    referral_code TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 4. CONTESTANTS TABLE
-CREATE TABLE IF NOT EXISTS public.contestants (
+-- 2. PLANS TABLE
+-- Administrator-configurable savings plans (e.g. ₦200/day, 30 core days + 3 additional = 33 days)
+CREATE TABLE IF NOT EXISTS public.plans (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    contest_id UUID NOT NULL REFERENCES public.contests(id) ON DELETE CASCADE,
-    contestant_number TEXT NOT NULL,
     name TEXT NOT NULL,
-    bio TEXT,
-    photo_url TEXT,
-    status contestant_status NOT NULL DEFAULT 'approved',
-    whatsapp_number TEXT, -- Private contact, hidden from public RLS
-    vote_count INTEGER NOT NULL DEFAULT 0,
+    daily_amount NUMERIC(12, 2) NOT NULL DEFAULT 200.00,
+    core_days INTEGER NOT NULL DEFAULT 30,
+    additional_days INTEGER NOT NULL DEFAULT 3,
+    total_required_days INTEGER NOT NULL DEFAULT 33,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Seed default standard plan if none exists
+INSERT INTO public.plans (name, daily_amount, core_days, additional_days, total_required_days, description, status)
+VALUES (
+    'Save30 Standard',
+    200.00,
+    30,
+    3,
+    33,
+    'Save ₦200 daily for 30 core days plus 3 additional commitment days (33 total days). Eligible for ₦6,000 withdrawal upon Day 33 completion.',
+    'active'
+) ON CONFLICT DO NOTHING;
+
+-- 3. USER PLANS TABLE
+-- Snapshots plan terms so future admin changes do NOT mutate a user's active agreement
+CREATE TABLE IF NOT EXISTS public.user_plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    plan_id UUID NOT NULL REFERENCES public.plans(id),
+    cycle_number INTEGER NOT NULL DEFAULT 1,
+    plan_name TEXT NOT NULL,
+    daily_amount NUMERIC(12, 2) NOT NULL,
+    core_days INTEGER NOT NULL,
+    additional_days INTEGER NOT NULL,
+    total_days INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'terminated')),
+    completed_days INTEGER NOT NULL DEFAULT 0,
+    total_amount_paid NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
+    eligible_withdrawal_amount NUMERIC(12, 2) NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    CONSTRAINT unique_user_active_cycle UNIQUE (user_id, cycle_number)
+);
+
+-- 4. CONTRIBUTION DAYS TABLE
+-- Sequential tracking of Day 1 through Day 33
+CREATE TABLE IF NOT EXISTS public.contribution_days (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_plan_id UUID NOT NULL REFERENCES public.user_plans(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    day_number INTEGER NOT NULL CHECK (day_number >= 1),
+    amount NUMERIC(12, 2) NOT NULL,
+    status TEXT NOT NULL DEFAULT 'locked' CHECK (status IN ('locked', 'unpaid', 'pending', 'successful', 'failed', 'reversed')),
+    due_date TIMESTAMPTZ,
+    paid_at TIMESTAMPTZ,
+    transaction_id TEXT,
+    payment_reference TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT unique_contest_contestant_number UNIQUE (contest_id, contestant_number)
+    CONSTRAINT unique_user_plan_day UNIQUE (user_plan_id, day_number)
 );
 
--- 5. PARTICIPATIONS (VOTES) TABLE
-CREATE TABLE IF NOT EXISTS public.participations (
+-- 5. TRANSACTIONS TABLE (IMMUTABLE FINANCIAL LEDGER)
+CREATE TABLE IF NOT EXISTS public.transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    contest_id UUID NOT NULL REFERENCES public.contests(id) ON DELETE CASCADE,
-    contestant_id UUID NOT NULL REFERENCES public.contestants(id) ON DELETE CASCADE,
-    device_token TEXT NOT NULL,
-    voter_name TEXT NOT NULL,
-    voter_whatsapp TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    save30_id TEXT NOT NULL,
+    user_plan_id UUID NOT NULL REFERENCES public.user_plans(id) ON DELETE CASCADE,
+    day_number INTEGER NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    reference TEXT UNIQUE NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'paystack',
+    provider_tx_id TEXT,
+    payment_method TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'successful', 'failed', 'reversed')),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    verified_at TIMESTAMPTZ
+);
+
+-- 6. WITHDRAWALS TABLE
+CREATE TABLE IF NOT EXISTS public.withdrawals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    save30_id TEXT NOT NULL,
+    user_plan_id UUID NOT NULL REFERENCES public.user_plans(id) ON DELETE CASCADE,
+    full_name TEXT NOT NULL,
+    bank_name TEXT NOT NULL,
+    account_number TEXT NOT NULL,
+    account_name TEXT NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'successful', 'failed')),
+    admin_notes TEXT,
+    processed_by_admin_id UUID REFERENCES public.profiles(id),
+    processed_at TIMESTAMPTZ,
+    payment_reference TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 7. AUDIT LOGS TABLE
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id UUID NOT NULL REFERENCES public.profiles(id),
+    admin_email TEXT NOT NULL,
+    admin_role TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    previous_value JSONB,
+    new_value JSONB,
     ip_address TEXT,
-    user_agent TEXT,
+    details TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 6. AUDIT & ABUSE LOGS TABLE
-CREATE TABLE IF NOT EXISTS public.abuse_logs (
+-- 8. IN-APP NOTIFICATIONS TABLE
+CREATE TABLE IF NOT EXISTS public.notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    contest_id UUID REFERENCES public.contests(id) ON DELETE SET NULL,
-    device_token TEXT,
-    event_type TEXT NOT NULL,
-    details JSONB DEFAULT '{}'::jsonb,
-    ip_address TEXT,
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'info' CHECK (type IN ('info', 'success', 'warning', 'error')),
+    is_read BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 7. PERFORMANCE INDEXES
-CREATE INDEX IF NOT EXISTS idx_contests_slug ON public.contests(slug);
-CREATE INDEX IF NOT EXISTS idx_contests_status ON public.contests(status);
-CREATE INDEX IF NOT EXISTS idx_contestants_contest_status ON public.contestants(contest_id, status);
-CREATE INDEX IF NOT EXISTS idx_contestants_vote_count ON public.contestants(contest_id, vote_count DESC);
-CREATE INDEX IF NOT EXISTS idx_participations_contest_device ON public.participations(contest_id, device_token);
-CREATE INDEX IF NOT EXISTS idx_participations_contestant ON public.participations(contestant_id);
-CREATE INDEX IF NOT EXISTS idx_participations_created_at ON public.participations(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_abuse_logs_created_at ON public.abuse_logs(created_at DESC);
+-- 9. SUPPORT TICKETS TABLE
+CREATE TABLE IF NOT EXISTS public.support_tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    save30_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    message TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'resolved', 'closed')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- 8. ATOMIC VOTE SUBMISSION STORED PROCEDURE
--- Enforces concurrency safety, checks contest active status, validates max 2 votes per device,
--- inserts participation and atomically increments vote count.
-CREATE OR REPLACE FUNCTION public.submit_vote(
-    p_contest_id UUID,
-    p_contestant_id UUID,
-    p_device_token TEXT,
-    p_voter_name TEXT,
-    p_voter_whatsapp TEXT,
-    p_ip_address TEXT DEFAULT NULL,
-    p_user_agent TEXT DEFAULT NULL
-)
-RETURNS JSONB
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    v_contest RECORD;
-    v_contestant RECORD;
-    v_device_vote_count INTEGER;
-    v_new_vote_count INTEGER;
-    v_max_submissions INTEGER;
-BEGIN
-    -- 1. Check Contest existence and status
-    SELECT id, status, start_time, end_time, max_submissions_per_device, whatsapp_channel_url
-    INTO v_contest
-    FROM public.contests
-    WHERE id = p_contest_id
-    FOR SHARE;
-
-    IF NOT FOUND THEN
-        RETURN jsonb_build_object('success', false, 'error', 'CONTEST_NOT_FOUND', 'message', 'The requested contest does not exist.');
-    END IF;
-
-    IF v_contest.status != 'active' THEN
-        RETURN jsonb_build_object('success', false, 'error', 'CONTEST_NOT_ACTIVE', 'message', 'Voting is currently not active for this contest.');
-    END IF;
-
-    IF v_contest.start_time IS NOT NULL AND now() < v_contest.start_time THEN
-        RETURN jsonb_build_object('success', false, 'error', 'CONTEST_NOT_STARTED', 'message', 'Voting has not started yet.');
-    END IF;
-
-    IF v_contest.end_time IS NOT NULL AND now() > v_contest.end_time THEN
-        RETURN jsonb_build_object('success', false, 'error', 'CONTEST_ENDED', 'message', 'Voting has ended for this contest.');
-    END IF;
-
-    v_max_submissions := COALESCE(v_contest.max_submissions_per_device, 2);
-
-    -- 2. Verify Contestant exists, belongs to contest, and is approved
-    SELECT id, name, contestant_number, status, vote_count
-    INTO v_contestant
-    FROM public.contestants
-    WHERE id = p_contestant_id AND contest_id = p_contest_id
-    FOR UPDATE; -- Row lock to guarantee atomic count update
-
-    IF NOT FOUND THEN
-        RETURN jsonb_build_object('success', false, 'error', 'CONTESTANT_NOT_FOUND', 'message', 'Contestant not found in this contest.');
-    END IF;
-
-    IF v_contestant.status != 'approved' THEN
-        RETURN jsonb_build_object('success', false, 'error', 'CONTESTANT_NOT_ELIGIBLE', 'message', 'This contestant is not currently eligible for votes.');
-    END IF;
-
-    -- 3. Check participation limit for device/browser token
-    SELECT COUNT(*)
-    INTO v_device_vote_count
-    FROM public.participations
-    WHERE contest_id = p_contest_id AND device_token = p_device_token;
-
-    IF v_device_vote_count >= v_max_submissions THEN
-        -- Log abuse event
-        INSERT INTO public.abuse_logs (contest_id, device_token, event_type, details, ip_address)
-        VALUES (p_contest_id, p_device_token, 'LIMIT_EXCEEDED', jsonb_build_object('attempted_contestant_id', p_contestant_id, 'current_count', v_device_vote_count), p_ip_address);
-
-        RETURN jsonb_build_object(
-            'success', false,
-            'error', 'PARTICIPATION_LIMIT_REACHED',
-            'message', 'You have reached the maximum allowed submissions (2) for this contest from this browser/device.',
-            'submissions_used', v_device_vote_count,
-            'max_allowed', v_max_submissions
-        );
-    END IF;
-
-    -- 4. Record Participation
-    INSERT INTO public.participations (
-        contest_id,
-        contestant_id,
-        device_token,
-        voter_name,
-        voter_whatsapp,
-        ip_address,
-        user_agent
-    )
-    VALUES (
-        p_contest_id,
-        p_contestant_id,
-        p_device_token,
-        TRIM(p_voter_name),
-        TRIM(p_voter_whatsapp),
-        p_ip_address,
-        p_user_agent
-    );
-
-    -- 5. Atomically increment vote count
-    UPDATE public.contestants
-    SET vote_count = vote_count + 1,
-        updated_at = now()
-    WHERE id = p_contestant_id
-    RETURNING vote_count INTO v_new_vote_count;
-
-    -- 6. Return success response
-    RETURN jsonb_build_object(
-        'success', true,
-        'message', 'Your choice has been recorded successfully.',
-        'contestant', jsonb_build_object(
-            'id', v_contestant.id,
-            'name', v_contestant.name,
-            'contestant_number', v_contestant.contestant_number,
-            'vote_count', v_new_vote_count
-        ),
-        'submissions_used', v_device_vote_count + 1,
-        'remaining_submissions', v_max_submissions - (v_device_vote_count + 1),
-        'whatsapp_channel_url', v_contest.whatsapp_channel_url
-    );
-END;
-$$;
-
--- 9. ROW LEVEL SECURITY (RLS) POLICIES
-ALTER TABLE public.contests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.contestants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.participations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.abuse_logs ENABLE ROW LEVEL SECURITY;
-
--- Contests: Anyone can read active/public contests
-CREATE POLICY "Public read contests"
-    ON public.contests FOR SELECT
-    TO public
-    USING (true);
-
--- Contestants: Anyone can view approved contestants
-CREATE POLICY "Public read approved contestants"
-    ON public.contestants FOR SELECT
-    TO public
-    USING (status = 'approved');
-
--- Allow public to register a contestant (status will be pending)
-CREATE POLICY "Public insert pending contestant"
-    ON public.contestants FOR INSERT
-    TO public
-    WITH CHECK (status = 'pending' AND vote_count = 0);
-
--- Participations: NEVER readable by public. Only accessible via RPC or service_role
-CREATE POLICY "Service role full participations"
-    ON public.participations FOR ALL
-    TO service_role
-    USING (true)
-    WITH CHECK (true);
-
--- Abuse logs: Only accessible by service_role
-CREATE POLICY "Service role full abuse logs"
-    ON public.abuse_logs FOR ALL
-    TO service_role
-    USING (true)
-    WITH CHECK (true);
-
--- 10. REALTIME CONFIGURATION
--- Enable publication for realtime table changes
-DO $$
-BEGIN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.contestants;
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.contests;
-EXCEPTION
-    WHEN OTHERS THEN NULL;
-END $$;
-
--- 11. DEFAULT SEED CONTEST (Contestants will ONLY show when details are imputed)
-INSERT INTO public.contests (
-    id,
-    slug,
-    title,
-    description,
-    category,
-    status,
-    max_submissions_per_device,
-    whatsapp_channel_url,
-    whatsapp_channel_name,
-    is_public_leaderboard_visible,
-    allow_contestant_registration
-)
-VALUES (
-    'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-    'official-contest',
-    'Voters Decide — Official Public Contest',
-    'Vote for your preferred candidate. Maximum 2 submissions per browser. Official real-time results powered by Supabase.',
-    'Public Contest',
-    'active',
-    2,
-    'https://whatsapp.com',
-    'Voters Decide Official Channel',
-    true,
-    true
-)
-ON CONFLICT (slug) DO UPDATE
-SET title = EXCLUDED.title,
-    description = EXCLUDED.description;
-
+-- 10. INDEXES
+CREATE INDEX IF NOT EXISTS idx_profiles_save30_id ON public.profiles(save30_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
+CREATE INDEX IF NOT EXISTS idx_user_plans_user_status ON public.user_plans(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_contribution_days_plan_status ON public.contribution_days(user_plan_id, status);
+CREATE INDEX IF NOT EXISTS idx_contribution_days_day_number ON public.contribution_days(user_plan_id, day_number);
+CREATE INDEX IF NOT EXISTS idx_transactions_reference ON public.transactions(reference);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON public.transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON public.withdrawals(status);
+CREATE INDEX IF NOT EXISTS idx_withdrawals_user_id ON public.withdrawals(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON public.notifications(user_id, is_read);
