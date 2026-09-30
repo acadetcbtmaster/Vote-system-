@@ -37,9 +37,12 @@ if (supabaseUrl && supabaseKey) {
 // ---------------------------------------------------------------------------
 // Save30 Local & Persistent Data Store
 // Ensures seamless zero-downtime operation, local preview durability, and testability.
+// On Vercel / serverless platforms, writes to /tmp to prevent read-only filesystem errors.
 // ---------------------------------------------------------------------------
-const DATA_DIR = path.join(process.cwd(), 'data');
+const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const DATA_DIR = isVercel ? path.join('/tmp', 'save30_data') : path.join(process.cwd(), 'data');
 const STORE_FILE = path.join(DATA_DIR, 'save30_store.json');
+const FALLBACK_SEED_FILE = path.join(process.cwd(), 'data', 'save30_store.json');
 
 export interface StoredUser {
   id: string;
@@ -274,16 +277,26 @@ let db: Save30Database = {
 };
 
 function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+  } catch (err) {
+    console.warn('[Save30 DB] Notice: Unable to create data dir (serverless filesystem fallback):', err);
   }
 }
 
 function loadStoreFromDisk(): void {
   try {
     ensureDataDir();
+    let raw: string | null = null;
     if (fs.existsSync(STORE_FILE)) {
-      const raw = fs.readFileSync(STORE_FILE, 'utf-8');
+      raw = fs.readFileSync(STORE_FILE, 'utf-8');
+    } else if (fs.existsSync(FALLBACK_SEED_FILE)) {
+      raw = fs.readFileSync(FALLBACK_SEED_FILE, 'utf-8');
+    }
+
+    if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
         db = {
@@ -305,11 +318,9 @@ function loadStoreFromDisk(): void {
           }
         }
       }
-    } else {
-      saveStoreToDisk();
     }
   } catch (err) {
-    console.error('[Save30 DB] Error loading store from disk:', err);
+    console.warn('[Save30 DB] Warning loading store from disk:', err);
   }
 }
 
@@ -318,7 +329,7 @@ function saveStoreToDisk(): void {
     ensureDataDir();
     fs.writeFileSync(STORE_FILE, JSON.stringify(db, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[Save30 DB] Error saving store to disk:', err);
+    console.warn('[Save30 DB] Warning saving store to disk (in-memory state preserved):', err);
   }
 }
 
