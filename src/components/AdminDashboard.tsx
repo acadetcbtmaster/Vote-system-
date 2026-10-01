@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Save30Logo } from './Save30Logo';
+import { Plan } from '../types';
 import {
   ShieldCheck,
   Users,
@@ -55,16 +56,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Plan Edit/Create Modal
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
-  const [planForm, setPlanForm] = useState({
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [planForm, setPlanForm] = useState<{
+    name: string;
+    daily_amount: number;
+    core_days: number;
+    additional_days: number;
+    description: string;
+    status: 'active' | 'inactive';
+  }>({
     name: 'Save30 Standard',
     daily_amount: 200,
     core_days: 30,
     additional_days: 3,
     description: '',
+    status: 'active',
   });
 
   // Selected User Modal for deep inspection
   const [selectedUserDetail, setSelectedUserDetail] = useState<any | null>(null);
+  const [adminNotification, setAdminNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [isResettingDb, setIsResettingDb] = useState(false);
+
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setAdminNotification({ type, message });
+    setTimeout(() => {
+      setAdminNotification(null);
+    }, 4000);
+  };
+
+  const handleResetDatabase = async () => {
+    if (isResettingDb) return;
+    try {
+      setIsResettingDb(true);
+      await api.resetDatabase();
+      await loadData();
+      showNotification('Database reset successfully. 0 users, 0 transactions, 0 plans.', 'success');
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to reset database.', 'error');
+    } finally {
+      setIsResettingDb(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -113,38 +146,80 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setAdminNote('');
       setPaymentReference('');
       await loadData();
-      alert(`Withdrawal updated to ${newStatus.toUpperCase()}!`);
+      showNotification(`Withdrawal updated to ${newStatus.toUpperCase()}!`, 'success');
     } catch (err: any) {
-      alert(err.message || 'Failed to update withdrawal.');
+      showNotification(err.message || 'Failed to update withdrawal.', 'error');
     } finally {
       setIsProcessingWth(false);
     }
   };
 
-  const handleCreatePlan = async (e: React.FormEvent) => {
+  const handleOpenCreatePlan = () => {
+    setEditingPlanId(null);
+    setPlanForm({
+      name: '',
+      daily_amount: 200,
+      core_days: 30,
+      additional_days: 3,
+      description: '',
+      status: 'active',
+    });
+    setIsPlanModalOpen(true);
+  };
+
+  const handleOpenEditPlan = (plan: Plan) => {
+    setEditingPlanId(plan.id);
+    setPlanForm({
+      name: plan.name,
+      daily_amount: plan.daily_amount,
+      core_days: plan.core_days,
+      additional_days: plan.additional_days,
+      description: plan.description || '',
+      status: plan.status === 'active' ? 'active' : 'inactive',
+    });
+    setIsPlanModalOpen(true);
+  };
+
+  const handleSavePlan = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.createPlan(planForm);
+      if (editingPlanId) {
+        await api.updatePlan(editingPlanId, planForm);
+        showNotification('Plan updated successfully!', 'success');
+      } else {
+        await api.createPlan(planForm);
+        showNotification('New Plan created successfully!', 'success');
+      }
       setIsPlanModalOpen(false);
+      setEditingPlanId(null);
       await loadData();
-      alert('New Plan created successfully!');
     } catch (err: any) {
-      alert(err.message || 'Failed to create plan.');
+      showNotification(err.message || 'Failed to save plan.', 'error');
+    }
+  };
+
+  const handleTogglePlanStatus = async (plan: Plan) => {
+    const nextStatus = plan.status === 'active' ? 'inactive' : 'active';
+    try {
+      await api.updatePlan(plan.id, { status: nextStatus });
+      await loadData();
+      showNotification(`Plan "${plan.name}" is now ${nextStatus.toUpperCase()}.`, 'success');
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to update plan status.', 'error');
     }
   };
 
   const handleToggleSuspendUser = async (userId: string, isSuspended: boolean) => {
-    const reason = prompt(
-      `Please provide a reason to ${isSuspended ? 'reactivate' : 'suspend'} this account:`
-    );
-    if (reason === null) return;
-
     try {
-      await api.updateUserStatus(userId, !isSuspended, reason);
+      await api.updateUserStatus(
+        userId,
+        !isSuspended,
+        isSuspended ? 'Account reactivated by administrator' : 'Account suspended by administrator'
+      );
       await loadData();
-      alert(`User status updated.`);
+      showNotification(`User account ${isSuspended ? 'reactivated' : 'suspended'}.`, 'success');
     } catch (err: any) {
-      alert(err.message || 'Failed to update user status.');
+      showNotification(err.message || 'Failed to update user status.', 'error');
     }
   };
 
@@ -171,6 +246,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            {currentAdminRole === 'super_admin' && (
+              <button
+                type="button"
+                onClick={handleResetDatabase}
+                disabled={isResettingDb}
+                className="py-1.5 px-3 rounded-xl bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-red-300 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                title="Wipe database to clean state (0 users, 0 transactions, 0 plans)"
+              >
+                {isResettingDb ? 'Resetting...' : 'Reset Database'}
+              </button>
+            )}
             <button
               onClick={loadData}
               className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 text-xs transition-colors cursor-pointer flex items-center gap-1.5"
@@ -188,6 +274,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
       </header>
+
+      {/* Admin Notification Banner */}
+      {adminNotification && (
+        <div
+          className={`px-4 py-2.5 text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+            adminNotification.type === 'success'
+              ? 'bg-[#00875A] text-white'
+              : 'bg-red-600 text-white'
+          }`}
+        >
+          {adminNotification.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4" />
+          ) : (
+            <AlertTriangle className="w-4 h-4" />
+          )}
+          <span>{adminNotification.message}</span>
+        </div>
+      )}
 
       {/* Admin Nav Tabs */}
       <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 pt-4">
@@ -359,6 +463,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
               </div>
             </div>
+
+            {/* Database Clean State Reset Card for Super Admin */}
+            {currentAdminRole === 'super_admin' && (
+              <div className="p-5 rounded-2xl bg-red-950/20 border border-red-500/30 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-black text-red-400 flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-red-400" />
+                      <span>Database Maintenance & Clean State Reset</span>
+                    </h3>
+                    <p className="text-xs text-zinc-400 max-w-xl">
+                      Wipe all test user accounts, transactions, withdrawals, and plan records. Resets the database to a 100% clean initial state (Registered Users: 0, Transactions: 0, Plans: 0).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetDatabase}
+                    disabled={isResettingDb}
+                    className="py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs transition-colors shrink-0 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-red-900/30"
+                  >
+                    {isResettingDb ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Resetting...</span>
+                      </>
+                    ) : (
+                      <span>Reset Database to Clean State</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -392,7 +528,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {withdrawals.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="py-8 text-center text-zinc-500">
-                          No withdrawal records found.
+                          No withdrawal requests yet.
                         </td>
                       </tr>
                     ) : (
@@ -492,7 +628,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {users.map(u => (
+                    {users.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-zinc-500">
+                          No users registered yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      users.map(u => (
                       <tr key={u.id} className="hover:bg-white/5 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-[#00A86B]">
                           {u.save30_id}
@@ -552,7 +695,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           )}
                         </td>
                       </tr>
-                    ))}
+                    ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -573,7 +717,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {currentAdminRole === 'super_admin' && (
                 <button
-                  onClick={() => setIsPlanModalOpen(true)}
+                  onClick={handleOpenCreatePlan}
                   className="py-2.5 px-4 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-lg shadow-[#00875A]/25"
                 >
                   <Plus className="w-4 h-4" />
@@ -583,33 +727,81 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {plans.map(p => (
-                <div key={p.id} className="p-5 rounded-2xl bg-[#0F1622] border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-base font-black text-white">{p.name}</h4>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-[#00875A]/20 text-[#00A86B]">
-                      {p.status}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-zinc-400">{p.description}</p>
-
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-xs font-mono">
-                    <div>
-                      <span className="text-[10px] text-zinc-500 block uppercase">Daily</span>
-                      <strong className="text-white">₦{p.daily_amount}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-zinc-500 block uppercase">Core Days</span>
-                      <strong className="text-white">{p.core_days} days</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-zinc-500 block uppercase">Total Required</span>
-                      <strong className="text-[#00A86B]">{p.total_required_days} days</strong>
-                    </div>
-                  </div>
+              {plans.length === 0 ? (
+                <div className="col-span-1 md:col-span-2 p-12 text-center text-zinc-400 text-xs rounded-2xl bg-[#0F1622] border border-white/10 space-y-3">
+                  <Layers className="w-10 h-10 text-zinc-600 mx-auto" />
+                  <div className="text-base font-bold text-white">No plans available</div>
+                  <p className="text-zinc-400 max-w-sm mx-auto">
+                    No savings plans have been configured yet. Click "+ Create Plan" above to create your first database-backed plan.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                plans.map(p => {
+                  const isPlanActive = p.status === 'active';
+                  return (
+                    <div key={p.id} className="p-5 rounded-2xl bg-[#0F1622] border border-white/10 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-base font-black text-white">{p.name}</h4>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
+                              isPlanActive
+                                ? 'bg-[#00875A]/20 text-[#00A86B] border-[#00875A]/40'
+                                : 'bg-zinc-700/20 text-zinc-400 border-zinc-700/40'
+                            }`}
+                          >
+                            {p.status}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-zinc-400">{p.description}</p>
+
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-xs font-mono">
+                          <div>
+                            <span className="text-[10px] text-zinc-500 block uppercase">Daily</span>
+                            <strong className="text-white">₦{p.daily_amount.toLocaleString()}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-zinc-500 block uppercase">Core Days</span>
+                            <strong className="text-white">{p.core_days} days</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-zinc-500 block uppercase">Total Required</span>
+                            <strong className="text-[#00A86B]">{p.total_required_days} days</strong>
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] text-zinc-400 pt-1">
+                          Eligible Payout: <strong className="text-[#00A86B] font-mono">₦{(p.daily_amount * p.core_days).toLocaleString()}</strong>
+                        </div>
+                      </div>
+
+                      {currentAdminRole === 'super_admin' && (
+                        <div className="flex items-center gap-2 pt-3 border-t border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditPlan(p)}
+                            className="flex-1 py-1.5 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            Edit Plan
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePlanStatus(p)}
+                            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                              isPlanActive
+                                ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                                : 'bg-[#00875A]/20 hover:bg-[#00875A]/30 text-[#00A86B] border border-[#00875A]/30'
+                            }`}
+                          >
+                            {isPlanActive ? 'Disable Plan' : 'Enable Plan'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
@@ -636,7 +828,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {transactions.map(t => (
+                    {transactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-zinc-500">
+                          No transactions yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      transactions.map(t => (
                       <tr key={t.id} className="hover:bg-white/5">
                         <td className="py-3 px-4 font-mono font-bold text-[#00A86B]">
                           {t.save30_id}
@@ -665,7 +864,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           {new Date(t.created_at).toLocaleString()}
                         </td>
                       </tr>
-                    ))}
+                    ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -682,7 +882,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="space-y-3">
-              {auditLogs.map(log => (
+              {auditLogs.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-xs rounded-xl bg-[#0F1622] border border-white/10">
+                  No audit logs yet.
+                </div>
+              ) : (
+                auditLogs.map(log => (
                 <div key={log.id} className="p-4 rounded-xl bg-[#0F1622] border border-white/10 text-xs space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-[#00A86B] uppercase">{log.action}</span>
@@ -702,7 +907,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                   )}
                 </div>
-              ))}
+              ))
+              )}
             </div>
           </div>
         )}
@@ -717,8 +923,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <div className="space-y-3">
               {tickets.length === 0 ? (
-                <div className="p-8 text-center text-zinc-500 text-xs rounded-xl bg-[#0F1622]">
-                  No support tickets.
+                <div className="p-8 text-center text-zinc-500 text-xs rounded-xl bg-[#0F1622] border border-white/10">
+                  No support tickets yet.
                 </div>
               ) : (
                 tickets.map(t => (
@@ -826,18 +1032,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* PLAN CREATION MODAL */}
+      {/* PLAN CREATION / EDIT MODAL */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
           <div className="w-full max-w-md bg-[#0F1622] border border-white/15 rounded-2xl p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-black text-white">Create New Savings Plan</h3>
+              <h3 className="text-base font-black text-white">
+                {editingPlanId ? 'Edit Savings Plan' : 'Create New Savings Plan'}
+              </h3>
               <button onClick={() => setIsPlanModalOpen(false)}>
                 <X className="w-4 h-4 text-zinc-400" />
               </button>
             </div>
 
-            <form onSubmit={handleCreatePlan} className="space-y-3 text-xs">
+            <form onSubmit={handleSavePlan} className="space-y-3 text-xs">
               <div>
                 <label className="block text-zinc-300 font-bold mb-1">Plan Name</label>
                 <input
@@ -845,6 +1053,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   required
                   value={planForm.name}
                   onChange={e => setPlanForm({ ...planForm, name: e.target.value })}
+                  placeholder="e.g. Save30 Standard"
                   className="w-full p-2 bg-[#0D131C] border border-white/15 rounded-xl text-white"
                 />
               </div>
@@ -855,6 +1064,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <input
                     type="number"
                     required
+                    min={1}
                     value={planForm.daily_amount}
                     onChange={e => setPlanForm({ ...planForm, daily_amount: Number(e.target.value) })}
                     className="w-full p-2 bg-[#0D131C] border border-white/15 rounded-xl text-white"
@@ -865,6 +1075,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <input
                     type="number"
                     required
+                    min={1}
                     value={planForm.core_days}
                     onChange={e => setPlanForm({ ...planForm, core_days: Number(e.target.value) })}
                     className="w-full p-2 bg-[#0D131C] border border-white/15 rounded-xl text-white"
@@ -875,6 +1086,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <input
                     type="number"
                     required
+                    min={0}
                     value={planForm.additional_days}
                     onChange={e => setPlanForm({ ...planForm, additional_days: Number(e.target.value) })}
                     className="w-full p-2 bg-[#0D131C] border border-white/15 rounded-xl text-white"
@@ -883,11 +1095,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div>
+                <label className="block text-zinc-300 font-bold mb-1">Status</label>
+                <select
+                  value={planForm.status}
+                  onChange={e => setPlanForm({ ...planForm, status: e.target.value as 'active' | 'inactive' })}
+                  className="w-full p-2 bg-[#0D131C] border border-white/15 rounded-xl text-white outline-none"
+                >
+                  <option value="active">Active (Available for user selection)</option>
+                  <option value="inactive">Inactive (Disabled / Hidden from selection)</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-zinc-300 font-bold mb-1">Description</label>
                 <textarea
                   rows={2}
                   value={planForm.description}
                   onChange={e => setPlanForm({ ...planForm, description: e.target.value })}
+                  placeholder="Terms, daily commitment details, and withdrawal eligibility description..."
                   className="w-full p-2 bg-[#0D131C] border border-white/15 rounded-xl text-white resize-none"
                 />
               </div>
@@ -896,15 +1121,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsPlanModalOpen(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-white/10 text-zinc-300 font-bold"
+                  className="flex-1 py-2.5 rounded-xl bg-white/10 text-zinc-300 font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-[#00875A] text-white font-bold"
+                  className="flex-1 py-2.5 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-bold cursor-pointer"
                 >
-                  Create Plan
+                  {editingPlanId ? 'Save Changes' : 'Create Plan'}
                 </button>
               </div>
             </form>

@@ -51,10 +51,16 @@ export default function App() {
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.has('admin') || params.get('portal') === 'admin') {
+        if (currentUser && currentUser.role === 'user') {
+          // Regular saver attempting to access /admin
+          alert('Access Denied: Regular user accounts do not have administrator permissions.');
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+        }
         setIsAdminKeyModalOpen(true);
       }
     } catch {}
-  }, []);
+  }, [currentUser]);
 
   // Initial user session fetch
   useEffect(() => {
@@ -92,12 +98,14 @@ export default function App() {
 
     try {
       const res = await api.verifyAdminKey(adminSecretKey);
-      if (res.valid) {
-        setIsAdminKeyModalOpen(false);
-        setAdminRole(res.user?.role || 'super_admin');
-        if (res.user) {
-          setCurrentUser(res.user);
+      if (res.valid && res.user) {
+        if (res.user.role === 'user') {
+          setAdminKeyError('Access Denied: Regular saver accounts cannot access the administrative portal.');
+          return;
         }
+        setIsAdminKeyModalOpen(false);
+        setAdminRole(res.user.role);
+        setCurrentUser(res.user);
         setIsAdminView(true);
       } else {
         setAdminKeyError('Invalid administrator credentials.');
@@ -109,51 +117,6 @@ export default function App() {
     }
   };
 
-  // Quick Demo Seeder for Evaluator testing
-  const handleQuickDemoLogin = async (asAdmin = false) => {
-    if (asAdmin) {
-      setIsVerifyingAdmin(true);
-      try {
-        const res = await api.verifyAdminKey('verifiedmenmex');
-        if (res.valid) {
-          setCurrentUser(res.user);
-          setAdminRole(res.user?.role || 'super_admin');
-          setIsAdminView(true);
-        }
-      } catch {} finally {
-        setIsVerifyingAdmin(false);
-      }
-    } else {
-      // Auto-register or login a clean test saver
-      try {
-        const randomNum = Math.floor(Math.random() * 900) + 100;
-        const res = await api.register({
-          first_name: 'Chioma',
-          last_name: 'Okeke',
-          email: `chioma_${randomNum}@save30.ng`,
-          phone: `0803${randomNum}1234`,
-          password: 'Password123!',
-          confirm_password: 'Password123!',
-          accept_terms: true,
-        });
-        if (res.success && res.user) {
-          setCurrentUser(res.user);
-        }
-      } catch {
-        // Fallback login with default credentials if already registered
-        try {
-          const res = await api.login({
-            email: 'admin@save30.ng',
-            password: 'Save30Admin2026!',
-          });
-          if (res.success) {
-            setCurrentUser(res.user);
-          }
-        } catch {}
-      }
-    }
-  };
-
   if (isInitializing) {
     return (
       <div className="min-h-screen bg-[#080C14] flex items-center justify-center p-4">
@@ -162,12 +125,34 @@ export default function App() {
     );
   }
 
-  // 1. ADMIN VIEW
+  // 1. ADMIN VIEW (STRICT ROLE AUTHORIZATION CHECK)
   if (isAdminView) {
+    if (!currentUser || currentUser.role === 'user') {
+      return (
+        <div className="min-h-screen bg-[#080C14] flex items-center justify-center p-4 text-center">
+          <div className="max-w-md p-6 sm:p-8 rounded-2xl bg-[#0F1622] border border-red-500/30 space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 mx-auto">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h2 className="text-xl font-black text-white">403 — Administrator Access Denied</h2>
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              Standard user accounts created through the registration page do not have permission to access the Save30 Administrator Portal.
+            </p>
+            <button
+              onClick={() => setIsAdminView(false)}
+              className="py-2.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-bold text-xs transition-colors cursor-pointer"
+            >
+              Return to User Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <AdminDashboard
         onBackToApp={() => setIsAdminView(false)}
-        currentAdminRole={adminRole}
+        currentAdminRole={currentUser.role}
       />
     );
   }
@@ -179,7 +164,7 @@ export default function App() {
         <UserDashboard
           user={currentUser}
           onLogout={handleLogout}
-          onOpenAdmin={() => setIsAdminView(true)}
+          onOpenAdmin={currentUser.role !== 'user' ? () => setIsAdminView(true) : undefined}
           onOpenTerms={() => setIsTermsOpen(true)}
           onOpenPrivacy={() => setIsPrivacyOpen(true)}
         />
@@ -202,15 +187,6 @@ export default function App() {
           <Save30Logo size="md" showTagline />
 
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <button
-              onClick={() => setIsAdminKeyModalOpen(true)}
-              className="px-2.5 py-1.5 sm:px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
-              title="Administrator Portal"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:inline">Admin Portal</span>
-            </button>
-
             <button
               onClick={() => setAuthModalMode('login')}
               className="py-1.5 px-3 sm:px-4 rounded-xl text-zinc-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
@@ -268,23 +244,6 @@ export default function App() {
                 className="w-full sm:w-auto py-3.5 px-8 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-sm transition-colors cursor-pointer"
               >
                 Access Existing Vault
-              </button>
-            </div>
-
-            {/* Instant Demo Sandbox Button for Reviewers */}
-            <div className="pt-2">
-              <span className="text-[11px] text-zinc-500 mr-2">Quick Evaluation Shortcut:</span>
-              <button
-                onClick={() => handleQuickDemoLogin(false)}
-                className="text-[11px] font-bold text-[#00A86B] hover:underline cursor-pointer mr-3"
-              >
-                Instant Saver Demo
-              </button>
-              <button
-                onClick={() => handleQuickDemoLogin(true)}
-                className="text-[11px] font-bold text-indigo-400 hover:underline cursor-pointer"
-              >
-                Instant Admin Demo
               </button>
             </div>
           </div>
@@ -470,9 +429,9 @@ export default function App() {
             </button>
             <button
               onClick={() => setIsAdminKeyModalOpen(true)}
-              className="text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+              className="text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer text-xs"
             >
-              Admin Access
+              Staff Portal
             </button>
           </div>
         </div>
@@ -546,18 +505,6 @@ export default function App() {
                 )}
               </button>
             </form>
-
-            <div className="pt-2 border-t border-white/10 text-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setAdminSecretKey('verifiedmenmex');
-                }}
-                className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
-              >
-                Insert Demo Key (<code>verifiedmenmex</code>)
-              </button>
-            </div>
           </div>
         </div>
       )}

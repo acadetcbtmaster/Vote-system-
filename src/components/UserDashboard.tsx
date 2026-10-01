@@ -8,10 +8,13 @@ import {
   WithdrawalRequest,
   InAppNotification,
   UserPlan,
+  Plan,
 } from '../types';
 import { Save30Logo } from './Save30Logo';
 import { ReceiptModal } from './ReceiptModal';
 import { WithdrawalModal } from './WithdrawalModal';
+import { PaymentModal } from './PaymentModal';
+import { PlanSelectModal } from './PlanSelectModal';
 import { PasswordInput } from './PasswordInput';
 import {
   Lock,
@@ -60,13 +63,15 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   const [data, setData] = useState<UserDashboardData | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'days' | 'plans' | 'transactions' | 'withdrawal' | 'notifications' | 'support' | 'profile'>('dashboard');
   const [isLoading, setIsLoading] = useState(true);
-  const [isPaying, setIsPaying] = useState(false);
-  const [payingDayNumber, setPayingDayNumber] = useState<number | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [activeReceipt, setActiveReceipt] = useState<PaymentReceipt | null>(null);
   const [isWithdrawalModalOpen, setIsWithdrawalModalOpen] = useState(false);
   const [myPlans, setMyPlans] = useState<UserPlan[]>([]);
+  const [availablePlans, setAvailablePlans] = useState<Plan[]>([]);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [selectedPaymentDay, setSelectedPaymentDay] = useState<ContributionDay | null>(null);
+  const [isPlanSelectOpen, setIsPlanSelectOpen] = useState(false);
+  const [isCheckingCallback, setIsCheckingCallback] = useState(false);
 
   // Profile Change Password state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -95,8 +100,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   const loadPlans = async () => {
     try {
-      const res = await api.getMyPlans();
-      setMyPlans(res.plans);
+      const [myPlansRes, availRes] = await Promise.all([
+        api.getMyPlans(),
+        api.getAvailablePlans().catch(() => ({ plans: [] })),
+      ]);
+      setMyPlans(myPlansRes.plans);
+      setAvailablePlans(availRes.plans);
     } catch {}
   };
 
@@ -111,32 +120,42 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     loadDashboard();
     loadPlans();
     loadNotifications();
+
+    // Check for Paystack redirect callback: ?payment_reference=... or ?reference=...
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get('payment_reference') || params.get('reference');
+      if (ref) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setIsCheckingCallback(true);
+        api.verifyPayment(ref)
+          .then((res) => {
+            if (res.success && res.receipt) {
+              setActiveReceipt(res.receipt);
+              loadDashboard();
+              loadPlans();
+              loadNotifications();
+            } else if (res.status === 'pending') {
+              setPaymentError('Your payment is still being processed by the bank. Please check status again shortly.');
+            } else {
+              setPaymentError('Payment was not completed or failed on Paystack.');
+            }
+          })
+          .catch((err) => {
+            setPaymentError(err.message || 'Payment verification failed.');
+          })
+          .finally(() => {
+            setIsCheckingCallback(false);
+          });
+      }
+    } catch {}
   }, []);
 
-  const handlePayDay = async (dayNumber: number) => {
+  const handleOpenPayment = (dayNumber: number) => {
     setPaymentError(null);
-    setIsPaying(true);
-    setPayingDayNumber(dayNumber);
-
-    try {
-      // 1. Initialize payment transaction
-      const initRes = await api.initializePayment(dayNumber);
-
-      // In development or test environments, verify with simulation support
-      // 2. Complete verification immediately to simulate successful checkout
-      const verifyRes = await api.verifyPayment(initRes.reference, true);
-
-      if (verifyRes.success) {
-        setActiveReceipt(verifyRes.receipt);
-        await loadDashboard();
-        await loadPlans();
-        await loadNotifications();
-      }
-    } catch (err: any) {
-      setPaymentError(err.message || 'Payment could not be completed. Please try again.');
-    } finally {
-      setIsPaying(false);
-      setPayingDayNumber(null);
+    const day = data?.contributionDays.find(d => d.day_number === dayNumber);
+    if (day) {
+      setSelectedPaymentDay(day as any);
     }
   };
 
@@ -260,8 +279,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               )}
             </button>
 
-            {/* Admin Switcher (If user is an administrator) */}
-            {(user.role !== 'user' || onOpenAdmin) && (
+            {/* Admin Switcher (STRICTLY restricted to verified administrators) */}
+            {user.role !== 'user' && onOpenAdmin && (
               <button
                 onClick={onOpenAdmin}
                 className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
@@ -402,43 +421,162 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     {user.first_name} {user.last_name}
                   </h2>
                   <p className="text-xs text-zinc-400 mt-1 max-w-xl">
-                    Disciplined daily savings. Pay ₦{activePlan?.daily_amount ?? 200} every day sequentially to unlock your payout.
+                    {activePlan
+                      ? `Disciplined daily savings. Pay ₦${activePlan.daily_amount.toLocaleString()} every day sequentially to unlock your payout.`
+                      : 'You do not have an active savings plan. Select an active plan below to begin your daily savings discipline.'}
                   </p>
                 </div>
 
-                {/* Quick Action: Pay Today's Contribution */}
-                {completedDays < totalDays && (
+                {!activePlan ? (
                   <button
-                    onClick={() => handlePayDay(currentRequiredDay)}
-                    disabled={isPaying}
-                    className="py-3.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-xl shadow-[#00875A]/30 transition-all cursor-pointer disabled:opacity-50 shrink-0 transform active:scale-98"
+                    onClick={() => setIsPlanSelectOpen(true)}
+                    className="py-3.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#00875A]/30 transition-all cursor-pointer shrink-0"
                   >
-                    {isPaying && payingDayNumber === currentRequiredDay ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Verifying Day {currentRequiredDay}...</span>
-                      </>
-                    ) : (
-                      <>
+                    <Layers className="w-4 h-4" />
+                    <span>SELECT A PLAN</span>
+                  </button>
+                ) : (
+                  <>
+                    {/* Quick Action: Pay Today's Contribution */}
+                    {completedDays < totalDays && (
+                      <button
+                        onClick={() => handleOpenPayment(currentRequiredDay)}
+                        className="py-3.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-sm flex items-center justify-center gap-2.5 shadow-xl shadow-[#00875A]/30 transition-all cursor-pointer shrink-0 transform active:scale-98"
+                      >
                         <span>PAY TODAY (DAY {currentRequiredDay})</span>
                         <ArrowRight className="w-4 h-4" />
-                      </>
+                      </button>
                     )}
-                  </button>
-                )}
 
-                {/* If completed all 33 days */}
-                {completedDays >= totalDays && !data?.activeWithdrawal && (
-                  <button
-                    onClick={() => setIsWithdrawalModalOpen(true)}
-                    className="py-3.5 px-6 rounded-xl bg-[#00A86B] hover:bg-[#00875A] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#00A86B]/30 transition-all cursor-pointer shrink-0 animate-bounce"
-                  >
-                    <Unlock className="w-4 h-4" />
-                    <span>REQUEST ₦{activePlan?.eligible_withdrawal_amount.toLocaleString()} PAYOUT</span>
-                  </button>
+                    {/* If completed all 33 days */}
+                    {completedDays >= totalDays && !data?.activeWithdrawal && (
+                      <button
+                        onClick={() => setIsWithdrawalModalOpen(true)}
+                        className="py-3.5 px-6 rounded-xl bg-[#00A86B] hover:bg-[#00875A] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#00A86B]/30 transition-all cursor-pointer shrink-0 animate-bounce"
+                      >
+                        <Unlock className="w-4 h-4" />
+                        <span>REQUEST ₦{activePlan?.eligible_withdrawal_amount.toLocaleString()} PAYOUT</span>
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
+
+            {/* If user has NO active plan, display No Active Plan banner and call to action */}
+            {!activePlan ? (
+              <div className="space-y-6 animate-in fade-in">
+                {/* No Active Plan Banner */}
+                <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-[#0F1724] to-[#0A1019] border border-amber-500/30 shadow-xl space-y-4 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+                    <Layers className="w-7 h-7" />
+                  </div>
+                  <div className="max-w-md mx-auto space-y-1.5">
+                    <h3 className="text-2xl font-black text-white">Select a Save30 Plan</h3>
+                    <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                      You currently don't have an active Save30 plan. Choose a savings plan below to begin your daily savings discipline.
+                    </p>
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => setIsPlanSelectOpen(true)}
+                      className="py-3 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-xs sm:text-sm shadow-xl shadow-[#00875A]/25 transition-all inline-flex items-center gap-2 cursor-pointer transform active:scale-98"
+                    >
+                      <Layers className="w-4 h-4" />
+                      <span>BROWSE AVAILABLE PLANS</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Available Plans List */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[#00A86B]" />
+                      <span>Available Active Plans ({availablePlans.filter(p => p.status === 'active').length})</span>
+                    </h4>
+                    <span className="text-xs text-zinc-400">Database-backed plan terms</span>
+                  </div>
+
+                  {availablePlans.filter(p => p.status === 'active').length === 0 ? (
+                    <div className="p-8 text-center rounded-2xl bg-[#0F1622] border border-white/10 text-zinc-500 text-xs">
+                      No plans available.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {availablePlans.filter(p => p.status === 'active').map(plan => {
+                        const payoutAmount = plan.daily_amount * plan.core_days;
+                        return (
+                          <div
+                            key={plan.id}
+                            className="p-5 rounded-2xl bg-[#0F1622] border border-white/10 hover:border-[#00A86B]/40 transition-all flex flex-col justify-between space-y-4 shadow-lg"
+                          >
+                            <div className="space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-[#00875A]/20 text-[#00A86B] border border-[#00875A]/30">
+                                  Active Plan
+                                </span>
+                                <span className="text-xs font-mono font-bold text-zinc-400">
+                                  {plan.total_required_days} Days
+                                </span>
+                              </div>
+
+                              <h4 className="text-lg font-black text-white">{plan.name}</h4>
+                              <p className="text-xs text-zinc-400 leading-relaxed line-clamp-2">
+                                {plan.description}
+                              </p>
+
+                              <div className="pt-2 space-y-1.5 text-xs text-zinc-300">
+                                <div className="flex justify-between">
+                                  <span className="text-zinc-400">Daily Payment:</span>
+                                  <span className="font-black text-[#00A86B] font-mono">
+                                    ₦{plan.daily_amount.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-zinc-400">Core Period:</span>
+                                  <span className="font-bold text-white">{plan.core_days} Days</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-zinc-400">Commitment Days:</span>
+                                  <span className="font-bold text-amber-400">{plan.additional_days} Days</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-zinc-400">Total Payment Days:</span>
+                                  <span className="font-black text-white">{plan.total_required_days} Days</span>
+                                </div>
+                                <div className="flex justify-between border-t border-white/5 pt-1.5">
+                                  <span className="text-zinc-300 font-semibold">Eligible Payout:</span>
+                                  <span className="font-black text-[#00A86B] font-mono">
+                                    ₦{payoutAmount.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-zinc-400 pt-0.5">
+                                  Withdrawal becomes available after Day {plan.total_required_days}
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsPlanSelectOpen(true);
+                              }}
+                              className="w-full py-2.5 px-4 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-[#00875A]/25 transition-all cursor-pointer transform active:scale-98"
+                            >
+                              <span>SELECT PLAN</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
 
             {/* WITHDRAWAL STATUS BANNER */}
             <div
@@ -628,116 +766,121 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 ))}
               </div>
             </div>
+            </>
+            )}
           </div>
         )}
 
         {/* TAB 2: FULL 33-DAY GRID VIEW */}
         {activeTab === 'days' && (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-lg font-black text-white">All 33 Contribution Days</h3>
-                <p className="text-xs text-zinc-400">
-                  Sequential progress: Days 1–30 (Core) + Days 31–33 (Commitment)
+            {!activePlan ? (
+              <div className="p-8 text-center rounded-2xl bg-[#0F1622] border border-white/10 space-y-3">
+                <Layers className="w-10 h-10 text-amber-400 mx-auto" />
+                <h4 className="text-base font-bold text-white">No Active Plan</h4>
+                <p className="text-xs text-zinc-400 max-w-sm mx-auto">
+                  Select a savings plan first to unlock your 33-day sequential contribution grid.
                 </p>
-              </div>
-
-              {completedDays < totalDays && (
                 <button
-                  onClick={() => handlePayDay(currentRequiredDay)}
-                  disabled={isPaying}
-                  className="py-2.5 px-5 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#00875A]/30 transition-all cursor-pointer disabled:opacity-50"
+                  onClick={() => setIsPlanSelectOpen(true)}
+                  className="py-2.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg shadow-[#00875A]/25"
                 >
-                  {isPaying ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Verifying...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Pay Day {currentRequiredDay} (₦{activePlan?.daily_amount})</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
+                  <span>Select a Plan</span>
+                  <ArrowRight className="w-4 h-4" />
                 </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {(data?.contributionDays || []).map(day => {
-                const isCurrent = day.day_number === currentRequiredDay;
-                const isSuccess = day.status === 'successful';
-                const isLocked = day.status === 'locked';
-
-                return (
-                  <div
-                    key={day.id}
-                    className={`p-3.5 rounded-xl border flex flex-col justify-between transition-all ${
-                      isSuccess
-                        ? 'bg-[#00875A]/15 border-[#00A86B]/40'
-                        : isCurrent
-                        ? 'bg-[#0D1624] border-[#00A86B] ring-2 ring-[#00A86B]/40 shadow-lg'
-                        : 'bg-[#0A0F17] border-white/10 opacity-75'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-black text-white">
-                          Day {day.day_number}
-                        </span>
-                        {isSuccess ? (
-                          <span className="p-1 rounded-full bg-[#00875A]/30 text-[#00A86B]">
-                            <Check className="w-3.5 h-3.5" />
-                          </span>
-                        ) : isCurrent ? (
-                          <span className="px-2 py-0.5 text-[9px] font-black uppercase rounded bg-[#00A86B] text-white">
-                            Today
-                          </span>
-                        ) : (
-                          <Lock className="w-3.5 h-3.5 text-zinc-600" />
-                        )}
-                      </div>
-
-                      <div className="text-sm font-black font-mono text-[#00A86B]">
-                        ₦{day.amount}
-                      </div>
-
-                      {day.day_number > coreDays && (
-                        <span className="inline-block mt-1 text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">
-                          Commitment Day
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="pt-3">
-                      {isCurrent ? (
-                        <button
-                          onClick={() => handlePayDay(day.day_number)}
-                          disabled={isPaying}
-                          className="w-full py-1.5 px-2 rounded-lg bg-[#00875A] hover:bg-[#00A86B] text-white text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 shadow-md shadow-[#00875A]/20"
-                        >
-                          {isPaying ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <span>Pay ₦{day.amount}</span>
-                          )}
-                        </button>
-                      ) : isSuccess ? (
-                        <div className="text-[10px] text-zinc-400 font-semibold flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-[#00A86B]" />
-                          <span>Confirmed</span>
-                        </div>
-                      ) : (
-                        <div className="text-[10px] text-zinc-500 font-semibold flex items-center gap-1">
-                          <Lock className="w-3 h-3 text-zinc-600" />
-                          <span>Locked</span>
-                        </div>
-                      )}
-                    </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-black text-white">All 33 Contribution Days</h3>
+                    <p className="text-xs text-zinc-400">
+                      Sequential progress: Days 1–30 (Core) + Days 31–33 (Commitment)
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+
+                  {completedDays < totalDays && (
+                    <button
+                      onClick={() => handleOpenPayment(currentRequiredDay)}
+                      className="py-2.5 px-5 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#00875A]/30 transition-all cursor-pointer"
+                    >
+                      <span>Pay Day {currentRequiredDay} (₦{activePlan.daily_amount.toLocaleString()})</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  {(data?.contributionDays || []).map(day => {
+                    const isCurrent = day.day_number === currentRequiredDay;
+                    const isSuccess = day.status === 'successful';
+
+                    return (
+                      <div
+                        key={day.id}
+                        className={`p-3.5 rounded-xl border flex flex-col justify-between transition-all ${
+                          isSuccess
+                            ? 'bg-[#00875A]/15 border-[#00A86B]/40'
+                            : isCurrent
+                            ? 'bg-[#0D1624] border-[#00A86B] ring-2 ring-[#00A86B]/40 shadow-lg'
+                            : 'bg-[#0A0F17] border-white/10 opacity-75'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-black text-white">
+                              Day {day.day_number}
+                            </span>
+                            {isSuccess ? (
+                              <span className="p-1 rounded-full bg-[#00875A]/30 text-[#00A86B]">
+                                <Check className="w-3.5 h-3.5" />
+                              </span>
+                            ) : isCurrent ? (
+                              <span className="px-2 py-0.5 text-[9px] font-black uppercase rounded bg-[#00A86B] text-white">
+                                Today
+                              </span>
+                            ) : (
+                              <Lock className="w-3.5 h-3.5 text-zinc-600" />
+                            )}
+                          </div>
+
+                          <div className="text-sm font-black font-mono text-[#00A86B]">
+                            ₦{day.amount}
+                          </div>
+
+                          {day.day_number > coreDays && (
+                            <span className="inline-block mt-1 text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                              Commitment Day
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="pt-3">
+                          {isCurrent ? (
+                            <button
+                              onClick={() => handleOpenPayment(day.day_number)}
+                              className="w-full py-1.5 px-2 rounded-lg bg-[#00875A] hover:bg-[#00A86B] text-white text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 shadow-md shadow-[#00875A]/20"
+                            >
+                              <span>Pay ₦{day.amount}</span>
+                            </button>
+                          ) : isSuccess ? (
+                            <div className="text-[10px] text-zinc-400 font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-[#00A86B]" />
+                              <span>Confirmed</span>
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-zinc-500 font-semibold flex items-center gap-1">
+                              <Lock className="w-3 h-3 text-zinc-600" />
+                              <span>Locked</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -755,17 +898,24 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               {/* Can start fresh cycle if no active plan or if active plan is completed */}
               {(!activePlan || activePlan.status === 'completed') && (
                 <button
-                  onClick={handleStartNewCycle}
+                  onClick={() => setIsPlanSelectOpen(true)}
                   className="py-2.5 px-5 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#00875A]/25 transition-all cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>Start Plan Cycle #{myPlans.length + 1}</span>
+                  <span>{activePlan ? `Start Plan Cycle #${myPlans.length + 1}` : 'Select a Plan'}</span>
                 </button>
               )}
             </div>
 
             <div className="space-y-4">
-              {myPlans.map(plan => (
+              {myPlans.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-xs rounded-2xl bg-[#0F1622] border border-white/10 space-y-2">
+                  <Layers className="w-8 h-8 text-zinc-600 mx-auto" />
+                  <p className="font-bold text-white text-sm">No plans joined yet.</p>
+                  <p className="text-zinc-400">Select an active plan below to begin your daily savings discipline.</p>
+                </div>
+              ) : (
+                myPlans.map(plan => (
                 <div
                   key={plan.id}
                   className={`p-5 rounded-2xl border ${
@@ -810,7 +960,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     </div>
                   </div>
                 </div>
-              ))}
+              ))
+            )}
             </div>
           </div>
         )}
@@ -818,62 +969,79 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         {/* TAB 4: WITHDRAWAL TAB */}
         {activeTab === 'withdrawal' && (
           <div className="space-y-6 max-w-2xl mx-auto">
-            <div className="p-6 rounded-2xl bg-[#0F1622] border border-white/10 space-y-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`p-3 rounded-xl ${
-                    isWithdrawalAvailable
-                      ? 'bg-[#00A86B]/20 text-[#00A86B] border border-[#00A86B]/40'
-                      : 'bg-white/5 text-amber-400 border border-white/10'
-                  }`}
-                >
-                  {isWithdrawalAvailable ? <Unlock className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-white">
-                    {isWithdrawalAvailable ? 'Withdrawal Unlocked' : 'Withdrawal Locked'}
-                  </h3>
-                  <p className="text-xs text-zinc-400">
-                    Target eligible payout:{' '}
-                    <strong className="text-white font-mono">
-                      ₦{activePlan?.eligible_withdrawal_amount.toLocaleString() || '6,000'}
-                    </strong>
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-[#090D14] border border-white/10 space-y-2 text-xs text-zinc-300 leading-relaxed">
-                <div className="font-bold text-white flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-[#00A86B]" />
-                  <span>Withdrawal Rules &amp; Requirement</span>
-                </div>
-                <p>
-                  To request your payout, you must complete all 30 core days (₦200 × 30 = ₦6,000) PLUS the 3 commitment days (Days 31–33).
+            {!activePlan ? (
+              <div className="p-8 text-center rounded-2xl bg-[#0F1622] border border-white/10 space-y-3">
+                <Lock className="w-10 h-10 text-amber-400 mx-auto" />
+                <h4 className="text-base font-bold text-white">No Active Plan</h4>
+                <p className="text-xs text-zinc-400 max-w-sm mx-auto">
+                  You need an active plan to participate and qualify for payouts. Select a plan to begin your daily savings.
                 </p>
-                <div className="pt-2 flex justify-between font-mono font-bold text-xs text-zinc-400 border-t border-white/10">
-                  <span>Current completed days:</span>
-                  <span className="text-[#00A86B]">{completedDays} / {totalDays}</span>
-                </div>
+                <button
+                  onClick={() => setIsPlanSelectOpen(true)}
+                  className="py-2.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-extrabold text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg shadow-[#00875A]/25"
+                >
+                  <span>Select a Plan</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
+            ) : (
+              <div className="p-6 rounded-2xl bg-[#0F1622] border border-white/10 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`p-3 rounded-xl ${
+                      isWithdrawalAvailable
+                        ? 'bg-[#00A86B]/20 text-[#00A86B] border border-[#00A86B]/40'
+                        : 'bg-white/5 text-amber-400 border border-white/10'
+                    }`}
+                  >
+                    {isWithdrawalAvailable ? <Unlock className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-white">
+                      {isWithdrawalAvailable ? 'Withdrawal Unlocked' : 'Withdrawal Locked'}
+                    </h3>
+                    <p className="text-xs text-zinc-400">
+                      Target eligible payout:{' '}
+                      <strong className="text-white font-mono">
+                        ₦{activePlan ? activePlan.eligible_withdrawal_amount.toLocaleString() : '0'}
+                      </strong>
+                    </p>
+                  </div>
+                </div>
 
-              {isWithdrawalAvailable ? (
-                <button
-                  onClick={() => setIsWithdrawalModalOpen(true)}
-                  className="w-full py-3.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#00875A]/30 transition-all cursor-pointer"
-                >
-                  <Building2 className="w-4 h-4" />
-                  <span>REQUEST WITHDRAWAL (₦{activePlan?.eligible_withdrawal_amount.toLocaleString()})</span>
-                </button>
-              ) : (
-                <button
-                  disabled
-                  className="w-full py-3.5 px-6 rounded-xl bg-white/5 text-zinc-500 font-bold text-xs flex items-center justify-center gap-2 cursor-not-allowed border border-white/10"
-                >
-                  <Lock className="w-4 h-4" />
-                  <span>Complete Days 1–33 to Unlock Withdrawal</span>
-                </button>
-              )}
-            </div>
+                <div className="p-4 rounded-xl bg-[#090D14] border border-white/10 space-y-2 text-xs text-zinc-300 leading-relaxed">
+                  <div className="font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-[#00A86B]" />
+                    <span>Withdrawal Rules &amp; Requirement</span>
+                  </div>
+                  <p>
+                    To request your payout, you must complete all {coreDays} core days (₦{activePlan?.daily_amount.toLocaleString()} × {coreDays} = ₦{activePlan?.eligible_withdrawal_amount.toLocaleString()}) PLUS the {additionalDays} commitment days (Days {coreDays + 1}–{totalDays}).
+                  </p>
+                  <div className="pt-2 flex justify-between font-mono font-bold text-xs text-zinc-400 border-t border-white/10">
+                    <span>Current completed days:</span>
+                    <span className="text-[#00A86B]">{completedDays} / {totalDays}</span>
+                  </div>
+                </div>
+
+                {isWithdrawalAvailable ? (
+                  <button
+                    onClick={() => setIsWithdrawalModalOpen(true)}
+                    className="w-full py-3.5 px-6 rounded-xl bg-[#00875A] hover:bg-[#00A86B] text-white font-black text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#00875A]/30 transition-all cursor-pointer"
+                  >
+                    <Building2 className="w-4 h-4" />
+                    <span>REQUEST WITHDRAWAL (₦{activePlan?.eligible_withdrawal_amount.toLocaleString()})</span>
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="w-full py-3.5 px-6 rounded-xl bg-white/5 text-zinc-500 font-bold text-xs flex items-center justify-center gap-2 cursor-not-allowed border border-white/10"
+                  >
+                    <Lock className="w-4 h-4" />
+                    <span>Complete Days 1–33 to Unlock Withdrawal</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -904,7 +1072,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     {(data?.recentTransactions || []).length === 0 ? (
                       <tr>
                         <td colSpan={6} className="py-8 text-center text-zinc-500">
-                          No transactions recorded yet.
+                          No transactions yet.
                         </td>
                       </tr>
                     ) : (
@@ -972,7 +1140,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="space-y-3">
               {notifications.length === 0 ? (
                 <div className="p-8 text-center text-zinc-500 text-xs rounded-2xl bg-[#0F1622] border border-white/10">
-                  No notifications.
+                  No notifications yet.
                 </div>
               ) : (
                 notifications.map(n => (
@@ -1144,6 +1312,36 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         <ReceiptModal
           receipt={activeReceipt}
           onClose={() => setActiveReceipt(null)}
+        />
+      )}
+
+      {/* Real Paystack Payment Modal */}
+      {selectedPaymentDay && activePlan && (
+        <PaymentModal
+          day={selectedPaymentDay}
+          plan={activePlan}
+          onClose={() => setSelectedPaymentDay(null)}
+          onPaymentSuccess={(receipt) => {
+            setSelectedPaymentDay(null);
+            setActiveReceipt(receipt);
+            loadDashboard();
+            loadPlans();
+            loadNotifications();
+          }}
+        />
+      )}
+
+      {/* Plan Selection & Confirmation Modal */}
+      {isPlanSelectOpen && (
+        <PlanSelectModal
+          availablePlans={availablePlans}
+          onClose={() => setIsPlanSelectOpen(false)}
+          onPlanSelected={() => {
+            setIsPlanSelectOpen(false);
+            loadDashboard();
+            loadPlans();
+            loadNotifications();
+          }}
         />
       )}
 

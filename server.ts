@@ -69,7 +69,7 @@ export interface StoredPlanTemplate {
   additional_days: number;
   total_required_days: number;
   description: string;
-  status: 'active' | 'archived';
+  status: 'active' | 'inactive' | 'archived';
   created_at: string;
   updated_at?: string;
 }
@@ -196,18 +196,9 @@ interface Save30Database {
   support_tickets: StoredSupportTicket[];
 }
 
-// Default Standard Plan: ₦200/day, 30 core days, 3 additional days = 33 total days
-const DEFAULT_PLAN_TEMPLATE: StoredPlanTemplate = {
-  id: 'plan_standard_save30',
-  name: 'Save30 Standard',
-  daily_amount: 200,
-  core_days: 30,
-  additional_days: 3,
-  total_required_days: 33,
-  description: 'Disciplined savings of ₦200 daily for 30 core days plus 3 additional commitment days (33 total days). Withdraw ₦6,000 upon Day 33 completion.',
-  status: 'active',
-  created_at: new Date().toISOString(),
-};
+// Plans are configured exclusively by Administrators via the Admin Panel.
+// Initial state starts completely empty (0 plans) adhering to Requirement #2 and #5.
+const DEFAULT_PLANS: StoredPlanTemplate[] = [];
 
 function hashPassword(password: string, salt: string): string {
   return crypto.pbkdf2Sync(password, salt, 50000, 64, 'sha512').toString('hex');
@@ -266,7 +257,7 @@ const defaultUsers: StoredUser[] = [
 let db: Save30Database = {
   next_user_sequence: 1,
   users: [...defaultUsers],
-  plans: [DEFAULT_PLAN_TEMPLATE],
+  plans: [...DEFAULT_PLANS],
   user_plans: [],
   contribution_days: [],
   transactions: [],
@@ -302,7 +293,7 @@ function loadStoreFromDisk(): void {
         db = {
           next_user_sequence: parsed.next_user_sequence || 1,
           users: Array.isArray(parsed.users) ? parsed.users : [...defaultUsers],
-          plans: Array.isArray(parsed.plans) && parsed.plans.length > 0 ? parsed.plans : [DEFAULT_PLAN_TEMPLATE],
+          plans: Array.isArray(parsed.plans) ? parsed.plans : [],
           user_plans: Array.isArray(parsed.user_plans) ? parsed.user_plans : [],
           contribution_days: Array.isArray(parsed.contribution_days) ? parsed.contribution_days : [],
           transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
@@ -353,7 +344,10 @@ function getNextSave30UserId(): { save30_id: string; sequence_number: number } {
 // Plan Initialization Helper: Instantiates User Plan Cycle + Days 1..33
 // ---------------------------------------------------------------------------
 function initializeUserPlanCycle(userId: string, cycleNumber = 1, planTemplate?: StoredPlanTemplate): StoredUserPlan {
-  const template = planTemplate || db.plans.find(p => p.status === 'active') || DEFAULT_PLAN_TEMPLATE;
+  const template = planTemplate || db.plans.find(p => p.status === 'active');
+  if (!template) {
+    throw new Error('No active savings plan found. An administrator must configure an active plan in the Admin Panel.');
+  }
   const dailyAmount = template.daily_amount;
   const coreDays = template.core_days;
   const additionalDays = template.additional_days;
@@ -594,15 +588,12 @@ app.post('/api/auth/register', async (req, res) => {
 
     db.users.push(newUser);
 
-    // Automatically create initial Plan Cycle #1 for the user
-    const initialPlan = initializeUserPlanCycle(newUser.id, 1);
-
-    // Initial Welcome Notification
+    // Initial Welcome Notification - User must select a plan before payments begin
     sendInAppNotification(
       newUser.id,
       'Welcome to Save30!',
-      `Welcome ${newUser.first_name}! Your unique User ID is ${newUser.save30_id}. Your Day 1 contribution of ₦${initialPlan.daily_amount} is now ready.`,
-      'success'
+      `Welcome ${newUser.first_name}! Your unique User ID is ${newUser.save30_id}. Please select an active savings plan to begin your daily savings journey.`,
+      'info'
     );
 
     saveStoreToDisk();
@@ -628,11 +619,67 @@ app.post('/api/auth/register', async (req, res) => {
       success: true,
       token,
       user: safeUser,
-      plan: initialPlan,
+      plan: null,
     });
   } catch (err: any) {
     console.error('[Save30 Auth] Registration error:', err);
     res.status(500).json({ error: 'Server error during registration. Please try again.' });
+  }
+});
+
+// User Plan Selection (Choose from available active plans)
+app.post('/api/user/select-plan', requireAuth, (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const { plan_id } = req.body;
+
+    if (!plan_id) {
+      res.status(400).json({ error: 'Please specify the plan ID you wish to join.' });
+      return;
+    }
+
+    loadStoreFromDisk();
+
+    // Check if user already has an active plan
+    const existingActivePlan = db.user_plans.find(up => up.user_id === user.id && up.status === 'active');
+    if (existingActivePlan) {
+      res.status(400).json({
+        error: `You already have an active plan (${existingActivePlan.plan_name}). Please complete your current cycle before joining a new plan.`,
+      });
+      return;
+    }
+
+    // Find the requested active plan template
+    const template = db.plans.find(p => p.id === plan_id && p.status === 'active');
+    if (!template) {
+      res.status(404).json({ error: 'Selected plan was not found or is currently inactive.' });
+      return;
+    }
+
+    // Determine user cycle number
+    const userCompletedPlans = db.user_plans.filter(up => up.user_id === user.id);
+    const nextCycle = userCompletedPlans.length + 1;
+
+    // Snapshot plan terms into user's plan record
+    const newPlan = initializeUserPlanCycle(user.id, nextCycle, template);
+
+    sendInAppNotification(
+      user.id,
+      `${template.name} Plan Activated!`,
+      `You have successfully enrolled in ${template.name}. Your daily contribution is ₦${template.daily_amount.toLocaleString()}. Complete Day 1 to begin!`,
+      'success'
+    );
+
+    saveStoreToDisk();
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully enrolled in ${template.name}!`,
+      plan: newPlan,
+    });
+  } catch (err: any) {
+    console.error('[Save30 Plan Selection Error]:', err);
+    res.status(500).json({ error: 'Failed to join plan. Please try again.' });
   }
 });
 
@@ -776,39 +823,42 @@ app.get('/api/user/dashboard', requireAuth, (req: AuthenticatedRequest, res) => 
   loadStoreFromDisk();
 
   // Find active plan for this user
-  let activePlan = db.user_plans.find(up => up.user_id === user.id && up.status === 'active');
+  const activePlan = db.user_plans.find(up => up.user_id === user.id && up.status === 'active') || null;
 
-  // If user somehow doesn't have an active plan, initialize Cycle 1
-  if (!activePlan) {
-    const completedCycles = db.user_plans.filter(up => up.user_id === user.id && up.status === 'completed').length;
-    activePlan = initializeUserPlanCycle(user.id, completedCycles + 1);
-  }
+  // Get all contribution days for the active plan (if any)
+  const contributionDays = activePlan
+    ? db.contribution_days
+        .filter(cd => cd.user_plan_id === activePlan.id)
+        .sort((a, b) => a.day_number - b.day_number)
+    : [];
 
-  // Get all contribution days for the active plan
-  const contributionDays = db.contribution_days
-    .filter(cd => cd.user_plan_id === activePlan!.id)
-    .sort((a, b) => a.day_number - b.day_number);
+  // Compute current required day and withdrawal eligibility
+  let currentRequiredDay = 1;
+  let isWithdrawalAvailable = false;
+  let withdrawalReason = 'No active plan. Please select a plan to begin.';
 
-  // Compute current required day (first day that is NOT 'successful')
-  const currentRequiredDayObj = contributionDays.find(d => d.status !== 'successful');
-  const currentRequiredDay = currentRequiredDayObj ? currentRequiredDayObj.day_number : activePlan.total_days;
+  if (activePlan) {
+    const currentRequiredDayObj = contributionDays.find(d => d.status !== 'successful');
+    currentRequiredDay = currentRequiredDayObj ? currentRequiredDayObj.day_number : activePlan.total_days;
 
-  // Withdrawal Eligibility Condition:
-  // Must complete Day 30 AND Day 31 AND Day 32 AND Day 33 (completed_days >= total_days)
-  const isWithdrawalAvailable = activePlan.completed_days >= activePlan.total_days;
-  let withdrawalReason = '';
-  if (!isWithdrawalAvailable) {
-    if (activePlan.completed_days >= activePlan.core_days) {
-      const remainingAdditional = activePlan.total_days - activePlan.completed_days;
-      withdrawalReason = `Core contribution completed (${activePlan.core_days}/${activePlan.core_days} ✓). Complete Days 31–33 to unlock withdrawal (${remainingAdditional} day${remainingAdditional > 1 ? 's' : ''} left).`;
+    // Withdrawal Eligibility Condition:
+    // Must complete Day 30 AND Day 31 AND Day 32 AND Day 33 (completed_days >= total_days)
+    isWithdrawalAvailable = activePlan.completed_days >= activePlan.total_days;
+    if (!isWithdrawalAvailable) {
+      if (activePlan.completed_days >= activePlan.core_days) {
+        const remainingAdditional = activePlan.total_days - activePlan.completed_days;
+        withdrawalReason = `Core contribution completed (${activePlan.core_days}/${activePlan.core_days} ✓). Complete Days 31–33 to unlock withdrawal (${remainingAdditional} day${remainingAdditional > 1 ? 's' : ''} left).`;
+      } else {
+        withdrawalReason = `Complete all 30 core days and 3 additional commitment days (${activePlan.completed_days}/${activePlan.total_days} completed).`;
+      }
     } else {
-      withdrawalReason = `Complete all 30 core days and 3 additional commitment days (${activePlan.completed_days}/${activePlan.total_days} completed).`;
+      withdrawalReason = 'All 33 days completed! Eligible payout is available.';
     }
   }
 
-  // Check if active withdrawal exists for this plan
+  // Check if active withdrawal exists for user
   const activeWithdrawal = db.withdrawals.find(
-    w => w.user_plan_id === activePlan!.id && (w.status === 'pending' || w.status === 'processing')
+    w => w.user_id === user.id && (w.status === 'pending' || w.status === 'processing')
   ) || null;
 
   // Recent transactions for this user
@@ -840,17 +890,24 @@ app.get('/api/user/dashboard', requireAuth, (req: AuthenticatedRequest, res) => 
     withdrawalReason,
     activeWithdrawal,
     stats: {
-      totalSuccessfulDays: activePlan.completed_days,
-      totalRequiredDays: activePlan.total_days,
-      totalCoreDays: activePlan.core_days,
-      totalAdditionalDays: activePlan.additional_days,
-      totalAmountPaid: activePlan.total_amount_paid,
-      eligibleWithdrawalAmount: activePlan.eligible_withdrawal_amount,
-      dailyAmount: activePlan.daily_amount,
+      totalSuccessfulDays: activePlan ? activePlan.completed_days : 0,
+      totalRequiredDays: activePlan ? activePlan.total_days : 33,
+      totalCoreDays: activePlan ? activePlan.core_days : 30,
+      totalAdditionalDays: activePlan ? activePlan.additional_days : 3,
+      totalAmountPaid: activePlan ? activePlan.total_amount_paid : 0,
+      eligibleWithdrawalAmount: activePlan ? activePlan.eligible_withdrawal_amount : 0,
+      dailyAmount: activePlan ? activePlan.daily_amount : 200,
     },
     recentTransactions,
     unreadNotificationsCount,
   });
+});
+
+// Get All Available Active Plans (for selection)
+app.get('/api/plans', (req, res) => {
+  loadStoreFromDisk();
+  const activePlans = db.plans.filter(p => p.status === 'active');
+  res.json({ plans: activePlans });
 });
 
 // User Plan History (My Plans)
@@ -1000,11 +1057,11 @@ app.post('/api/payments/initialize', requireAuth, async (req: AuthenticatedReque
 });
 
 // Verify Payment & Complete Contribution Day
-// Strictly verifies server-side, checks amount/currency, and enforces idempotency.
+// Strictly verifies server-side with Paystack API, checks amount/currency, and enforces idempotency.
 app.post('/api/payments/verify', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const user = req.user!;
-    const { reference, simulate_success } = req.body;
+    const { reference } = req.body;
 
     if (!reference) {
       res.status(400).json({ error: 'Payment reference is required for verification.' });
@@ -1051,8 +1108,9 @@ app.post('/api/payments/verify', requireAuth, async (req: AuthenticatedRequest, 
     let isVerified = false;
     let paymentChannel = 'card';
     let providerTxId = '';
+    let paystackStatus = 'unverified';
 
-    // If live Paystack key exists, verify directly with Paystack API
+    // Verify directly with Paystack API using the server-side secret key
     if (paystackSecretKey && paystackSecretKey.startsWith('sk_')) {
       try {
         const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
@@ -1062,13 +1120,23 @@ app.post('/api/payments/verify', requireAuth, async (req: AuthenticatedRequest, 
           },
         });
         const verifyData = await verifyRes.json();
-        if (verifyData.status && verifyData.data?.status === 'success') {
-          // Verify amount and currency
-          const expectedKobo = Math.round(transaction.amount * 100);
-          if (verifyData.data.amount === expectedKobo && verifyData.data.currency === 'NGN') {
-            isVerified = true;
-            paymentChannel = verifyData.data.channel || 'card';
-            providerTxId = String(verifyData.data.id || '');
+        if (verifyData.status && verifyData.data) {
+          paystackStatus = verifyData.data.status; // 'success', 'pending', 'failed', 'abandoned'
+          if (paystackStatus === 'success') {
+            // Verify amount and currency
+            const expectedKobo = Math.round(transaction.amount * 100);
+            if (verifyData.data.amount === expectedKobo && verifyData.data.currency === 'NGN') {
+              isVerified = true;
+              paymentChannel = verifyData.data.channel || 'card';
+              providerTxId = String(verifyData.data.id || '');
+            } else {
+              console.warn('[Paystack Verify Warning]: Amount or currency mismatch', {
+                expectedKobo,
+                receivedKobo: verifyData.data.amount,
+                expectedCurrency: 'NGN',
+                receivedCurrency: verifyData.data.currency,
+              });
+            }
           }
         }
       } catch (verifyErr) {
@@ -1076,24 +1144,35 @@ app.post('/api/payments/verify', requireAuth, async (req: AuthenticatedRequest, 
       }
     }
 
-    // Allow sandbox simulation for development/testing only if simulate_success is true
-    if (!isVerified && simulate_success === true) {
-      isVerified = true;
-      paymentChannel = 'bank_transfer_sandbox';
-      providerTxId = `sim_${Date.now()}`;
-    }
-
     if (!isVerified) {
+      if (paystackStatus === 'pending') {
+        transaction.status = 'pending';
+        saveStoreToDisk();
+        res.status(200).json({
+          success: false,
+          status: 'pending',
+          message: 'Payment is still being processed by the bank. Please wait a moment and check status again.',
+        });
+        return;
+      }
+
+      // If failed, abandoned, or unverified
       transaction.status = 'failed';
-      // Contribution day remains locked/unpaid for retry
       const dayRecord = db.contribution_days.find(
         cd => cd.user_plan_id === transaction.user_plan_id && cd.day_number === transaction.day_number
       );
-      if (dayRecord) {
-        dayRecord.status = 'failed';
+      if (dayRecord && dayRecord.status === 'pending') {
+        dayRecord.status = 'unpaid'; // reset back to unpaid so user can retry payment
       }
       saveStoreToDisk();
-      res.status(400).json({ error: 'Payment verification failed or was not completed.' });
+
+      res.status(400).json({
+        success: false,
+        status: paystackStatus === 'abandoned' ? 'abandoned' : 'failed',
+        error: paystackStatus === 'abandoned'
+          ? 'Payment checkout was abandoned or canceled. Please initiate a new payment.'
+          : 'Payment verification failed: No confirmed successful payment from Paystack.',
+      });
       return;
     }
 
@@ -1307,7 +1386,7 @@ app.get('/api/user/receipt/:reference', requireAuth, (req: AuthenticatedRequest,
 
 // Submit Withdrawal Request
 // Enforces Day 33 completion rule, auto-computes eligible amount, duplicate protection
-app.post('/api/withdrawals/request', requireAuth, (req: AuthenticatedRequest, res) => {
+app.post(['/api/withdrawals/request', '/api/user/withdrawals'], requireAuth, (req: AuthenticatedRequest, res) => {
   try {
     const user = req.user!;
     const { full_name, bank_name, account_number, account_name } = req.body;
@@ -1404,6 +1483,16 @@ app.post('/api/withdrawals/request', requireAuth, (req: AuthenticatedRequest, re
     console.error('[Save30 Withdrawal Request Error]:', err);
     res.status(500).json({ error: 'Server error processing withdrawal request.' });
   }
+});
+
+// Get User Withdrawals
+app.get(['/api/user/withdrawals', '/api/withdrawals/my'], requireAuth, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  loadStoreFromDisk();
+  const withdrawals = db.withdrawals
+    .filter(w => w.user_id === user.id)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  res.json({ success: true, withdrawals });
 });
 
 // Start New Plan Cycle After Completion
@@ -1638,7 +1727,7 @@ app.get('/api/admin/plans', requireAdminRole(['super_admin', 'finance_admin']), 
 });
 
 app.post('/api/admin/plans', requireAdminRole(['super_admin']), (req: AuthenticatedRequest, res) => {
-  const { name, daily_amount, core_days, additional_days, description } = req.body;
+  const { name, daily_amount, core_days, additional_days, description, status } = req.body;
   const admin = req.user!;
 
   if (!name || !daily_amount || !core_days || !additional_days) {
@@ -1659,7 +1748,7 @@ app.post('/api/admin/plans', requireAdminRole(['super_admin']), (req: Authentica
     additional_days: aDays,
     total_required_days: totalDays,
     description: description || `Daily ₦${dAmt} for ${cDays} core days + ${aDays} additional days (${totalDays} total days).`,
-    status: 'active',
+    status: status === 'inactive' || status === 'archived' ? status : 'active',
     created_at: new Date().toISOString(),
   };
 
@@ -1672,7 +1761,7 @@ app.post('/api/admin/plans', requireAdminRole(['super_admin']), (req: Authentica
 
 app.patch('/api/admin/plans/:id', requireAdminRole(['super_admin']), (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
-  const { daily_amount, core_days, additional_days, description, status } = req.body;
+  const { name, daily_amount, core_days, additional_days, description, status } = req.body;
   const admin = req.user!;
 
   loadStoreFromDisk();
@@ -1683,6 +1772,7 @@ app.patch('/api/admin/plans/:id', requireAdminRole(['super_admin']), (req: Authe
   }
 
   const prev = { ...plan };
+  if (name !== undefined) plan.name = name.trim();
   if (daily_amount !== undefined) plan.daily_amount = Number(daily_amount);
   if (core_days !== undefined) plan.core_days = Number(core_days);
   if (additional_days !== undefined) plan.additional_days = Number(additional_days);
@@ -1828,6 +1918,41 @@ app.patch('/api/admin/support-tickets/:id', requireAdminRole(['super_admin', 'su
   ticket.updated_at = new Date().toISOString();
   saveStoreToDisk();
   res.json({ success: true, ticket });
+});
+
+// Admin Reset Database to Clean Empty State (Super Admin Only)
+// Resets users (except base admins), plans, transactions, withdrawals, and metrics to clean state.
+app.post('/api/admin/reset-database', requireAdminRole(['super_admin']), (req: AuthenticatedRequest, res) => {
+  db = {
+    next_user_sequence: 1,
+    users: [...defaultUsers],
+    plans: [],
+    user_plans: [],
+    contribution_days: [],
+    transactions: [],
+    withdrawals: [],
+    audit_logs: [],
+    notifications: [],
+    support_tickets: [],
+  };
+
+  recordAuditLog(
+    req.user!,
+    'RESET_DATABASE',
+    'system',
+    'database',
+    null,
+    null,
+    'Database reset to clean empty state (0 users, 0 transactions, 0 plans).',
+    req.ip
+  );
+
+  saveStoreToDisk();
+
+  res.json({
+    success: true,
+    message: 'Database has been reset to clean empty state. All user accounts, plans, transactions, and metrics have been cleared.',
+  });
 });
 
 // Verify Admin Key (for quick switcher or fallback auth)

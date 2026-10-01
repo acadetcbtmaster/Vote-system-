@@ -132,6 +132,10 @@ export const api = {
     return request<UserDashboardData>('/api/user/dashboard');
   },
 
+  async getAvailablePlans(): Promise<{ plans: Plan[] }> {
+    return request<{ plans: Plan[] }>('/api/plans');
+  },
+
   async getMyPlans(): Promise<{ plans: UserPlan[] }> {
     return request<{ plans: UserPlan[] }>('/api/user/plans');
   },
@@ -158,18 +162,26 @@ export const api = {
     });
   },
 
+  async selectPlan(plan_id: string): Promise<{ success: boolean; message: string; plan: UserPlan }> {
+    return request('/api/user/select-plan', {
+      method: 'POST',
+      body: JSON.stringify({ plan_id }),
+    });
+  },
+
   async verifyPayment(
-    reference: string,
-    simulate_success = false
+    reference: string
   ): Promise<{
     success: boolean;
-    message: string;
-    transaction: Transaction;
-    receipt: PaymentReceipt;
+    status?: string;
+    message?: string;
+    error?: string;
+    transaction?: Transaction;
+    receipt?: PaymentReceipt;
   }> {
     return request('/api/payments/verify', {
       method: 'POST',
-      body: JSON.stringify({ reference, simulate_success }),
+      body: JSON.stringify({ reference }),
     });
   },
 
@@ -263,6 +275,7 @@ export const api = {
     core_days: number;
     additional_days: number;
     description?: string;
+    status?: 'active' | 'inactive' | 'archived';
   }): Promise<{ success: boolean; plan: Plan }> {
     return request('/api/admin/plans', {
       method: 'POST',
@@ -273,11 +286,12 @@ export const api = {
   async updatePlan(
     id: string,
     payload: {
+      name?: string;
       daily_amount?: number;
       core_days?: number;
       additional_days?: number;
       description?: string;
-      status?: 'active' | 'archived';
+      status?: 'active' | 'inactive' | 'archived';
     }
   ): Promise<{ success: boolean; plan: Plan }> {
     return request(`/api/admin/plans/${encodeURIComponent(id)}`, {
@@ -320,6 +334,12 @@ export const api = {
     return request(`/api/admin/support-tickets/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    });
+  },
+
+  async resetDatabase(): Promise<{ success: boolean; message: string }> {
+    return request<{ success: boolean; message: string }>('/api/admin/reset-database', {
+      method: 'POST',
     });
   },
 

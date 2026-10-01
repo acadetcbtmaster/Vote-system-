@@ -1,6 +1,6 @@
 {
-  "name": "Voters Decide",
-  "description": "A secure, real-time public voting and participation platform powered by Supabase with server-side validation and live leaderboards.",
+  "name": "Save30 — Disciplined Daily Savings Platform",
+  "description": "Save30 — Disciplined daily savings for Nigerians. Save ₦200 daily for 30 core days plus 3 commitment days to unlock your ₦6,000 withdrawal.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

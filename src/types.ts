@@ -28,7 +28,7 @@ export interface Plan {
   additional_days: number; // e.g. 3
   total_required_days: number; // e.g. 33
   description: string;
-  status: 'active' | 'archived';
+  status: 'active' | 'inactive' | 'archived';
   created_at: string;
   updated_at?: string;
 }
